@@ -10,6 +10,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tower-http = { version = "0.5", features = ["trace"] }
 sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-rustls", "uuid", "time"] }
 redis = { version = "0.25", features = ["tokio-comp"] }
+time = { version = "0.3.46", features = ["formatting", "serde"] }
 
 [dev-dependencies]
 insta = "1"
