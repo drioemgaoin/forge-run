@@ -1,0 +1,28 @@
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# IDEs and editors
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Rust Analyzer / RLS
+.rustc_info.json
+
+# Coverage and profiling
+*.profraw
+*.profdata
+coverage/
+tarpaulin-report.html
+flamegraph.svg
+
+# Logs and local configs
+*.log
+*.tmp
+*.local
+
+# Skip directory
+dump/
