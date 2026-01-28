@@ -1,16 +1,17 @@
 use crate::domain::entities::job::JobState;
+use crate::domain::value_objects::ids::{EventId, JobId};
+use crate::domain::value_objects::timestamps::Timestamp;
 use crate::domain::workflows::state_machine::TransitionError;
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
 
 #[derive(Debug, PartialEq)]
 pub struct Event {
-    pub id: u64,
-    pub job_id: u64,
+    pub id: EventId,
+    pub job_id: JobId,
     pub event_name: EventName,
     pub prev_state: JobState,
     pub next_state: JobState,
-    pub timestamp: OffsetDateTime,
+    pub timestamp: Timestamp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,11 +74,11 @@ impl Event {
     ];
 
     pub fn from_transition(
-        id: u64,
-        job_id: u64,
+        id: EventId,
+        job_id: JobId,
         prev_state: JobState,
         next_state: JobState,
-        timestamp: OffsetDateTime,
+        timestamp: Timestamp,
     ) -> Result<Self, TransitionError> {
         let event_name = Self::TRANSITIONS
             .iter()
@@ -103,11 +104,11 @@ mod tests {
     #[test]
     fn given_created_to_queued_transition_when_from_transition_called_should_emit_job_queued() {
         let result = Event::from_transition(
-            1,
-            100,
+            EventId::new(),
+            JobId::new(),
             JobState::Created,
             JobState::Queued,
-            OffsetDateTime::now_utc(),
+            Timestamp::now_utc(),
         );
         let event = result.expect("event should be created");
         assert_eq!(event.event_name, EventName::JobQueued);
@@ -116,11 +117,11 @@ mod tests {
     #[test]
     fn given_assigned_to_running_transition_when_from_transition_called_should_emit_job_started() {
         let result = Event::from_transition(
-            1,
-            100,
+            EventId::new(),
+            JobId::new(),
             JobState::Assigned,
             JobState::Running,
-            OffsetDateTime::now_utc(),
+            Timestamp::now_utc(),
         );
         let event = result.expect("event should be created");
         assert_eq!(event.event_name, EventName::JobStarted);
@@ -130,11 +131,11 @@ mod tests {
     fn given_running_to_succeeded_transition_when_from_transition_called_should_emit_job_succeeded()
     {
         let result = Event::from_transition(
-            1,
-            100,
+            EventId::new(),
+            JobId::new(),
             JobState::Running,
             JobState::Succeeded,
-            OffsetDateTime::now_utc(),
+            Timestamp::now_utc(),
         );
         let event = result.expect("event should be created");
         assert_eq!(event.event_name, EventName::JobSucceeded);
@@ -143,11 +144,11 @@ mod tests {
     #[test]
     fn given_running_to_failed_transition_when_from_transition_called_should_emit_job_failed() {
         let result = Event::from_transition(
-            1,
-            100,
+            EventId::new(),
+            JobId::new(),
             JobState::Running,
             JobState::Failed,
-            OffsetDateTime::now_utc(),
+            Timestamp::now_utc(),
         );
         let event = result.expect("event should be created");
         assert_eq!(event.event_name, EventName::JobFailed);
@@ -156,11 +157,11 @@ mod tests {
     #[test]
     fn given_running_to_canceled_transition_when_from_transition_called_should_emit_job_canceled() {
         let result = Event::from_transition(
-            1,
-            100,
+            EventId::new(),
+            JobId::new(),
             JobState::Running,
             JobState::Canceled,
-            OffsetDateTime::now_utc(),
+            Timestamp::now_utc(),
         );
         let event = result.expect("event should be created");
         assert_eq!(event.event_name, EventName::JobCanceled);
@@ -169,11 +170,11 @@ mod tests {
     #[test]
     fn given_failed_to_queued_transition_when_from_transition_called_should_emit_job_queued() {
         let result = Event::from_transition(
-            1,
-            100,
+            EventId::new(),
+            JobId::new(),
             JobState::Failed,
             JobState::Queued,
-            OffsetDateTime::now_utc(),
+            Timestamp::now_utc(),
         );
         let event = result.expect("event should be created");
         assert_eq!(event.event_name, EventName::JobQueued);
@@ -181,29 +182,44 @@ mod tests {
 
     #[test]
     fn given_transition_when_from_transition_called_should_set_ids_and_states() {
-        let now = OffsetDateTime::now_utc();
-        let event = Event::from_transition(10, 20, JobState::Queued, JobState::Assigned, now)
-            .expect("event should be created");
+        let now = Timestamp::now_utc();
+        let event_id = EventId::new();
+        let job_id = JobId::new();
+        let event =
+            Event::from_transition(event_id, job_id, JobState::Queued, JobState::Assigned, now)
+                .expect("event should be created");
 
-        assert_eq!(event.id, 10);
-        assert_eq!(event.job_id, 20);
+        assert_eq!(event.id, event_id);
+        assert_eq!(event.job_id, job_id);
         assert_eq!(event.prev_state, JobState::Queued);
         assert_eq!(event.next_state, JobState::Assigned);
     }
 
     #[test]
     fn given_transition_when_from_transition_called_should_set_timestamp() {
-        let now = OffsetDateTime::now_utc();
-        let event = Event::from_transition(1, 1, JobState::Created, JobState::Queued, now)
-            .expect("event should be created");
+        let now = Timestamp::now_utc();
+        let event = Event::from_transition(
+            EventId::new(),
+            JobId::new(),
+            JobState::Created,
+            JobState::Queued,
+            now,
+        )
+        .expect("event should be created");
 
         assert_eq!(event.timestamp, now);
     }
 
     #[test]
     fn given_forbidden_transition_when_from_transition_called_should_not_use_created_as_default() {
-        let now = OffsetDateTime::now_utc();
-        let result = Event::from_transition(1, 1, JobState::Created, JobState::Running, now);
+        let now = Timestamp::now_utc();
+        let result = Event::from_transition(
+            EventId::new(),
+            JobId::new(),
+            JobState::Created,
+            JobState::Running,
+            now,
+        );
         assert_eq!(result, Err(TransitionError::Forbidden));
     }
 }

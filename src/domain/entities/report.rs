@@ -1,6 +1,7 @@
 use crate::domain::entities::event::EventName;
 use crate::domain::entities::job::{JobOutcome, JobState};
-use time::OffsetDateTime;
+use crate::domain::value_objects::ids::JobId;
+use crate::domain::value_objects::timestamps::Timestamp;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReportError {
@@ -15,23 +16,23 @@ pub struct EventSnapshot {
     pub event_name: EventName,
     pub prev_state: JobState,
     pub next_state: JobState,
-    pub timestamp: OffsetDateTime,
+    pub timestamp: Timestamp,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Report {
-    pub job_id: u64,
+    pub job_id: JobId,
     pub outcome: JobOutcome,
     pub outcome_reason: Option<String>,
-    pub started_at: OffsetDateTime,
-    pub finished_at: OffsetDateTime,
+    pub started_at: Timestamp,
+    pub finished_at: Timestamp,
     pub duration_ms: i64,
     pub events: Vec<EventSnapshot>,
 }
 
 impl Report {
     pub fn from_events(
-        job_id: u64,
+        job_id: JobId,
         outcome: JobOutcome,
         outcome_reason: Option<String>,
         mut events: Vec<EventSnapshot>,
@@ -40,7 +41,7 @@ impl Report {
             return Err(ReportError::MissingStartedEvent);
         }
 
-        events.sort_by_key(|e| e.timestamp);
+        events.sort_by_key(|e| e.timestamp.as_inner());
 
         let started_at = events
             .iter()
@@ -71,7 +72,7 @@ impl Report {
             return Err(ReportError::FinishedEventNotLast);
         }
 
-        let duration = finished_at - started_at;
+        let duration = finished_at.as_inner() - started_at.as_inner();
 
         Ok(Self {
             job_id,
@@ -91,11 +92,11 @@ mod tests {
 
     #[test]
     fn given_successful_events_when_from_events_called_should_set_outcome_and_times() {
-        let job_id = 1;
+        let job_id = JobId::new();
         let outcome = JobOutcome::Success;
         let outcome_reason = None;
-        let t0 = OffsetDateTime::now_utc();
-        let t1 = t0 + time::Duration::seconds(10);
+        let t0 = Timestamp::now_utc();
+        let t1 = Timestamp::from(t0.as_inner() + time::Duration::seconds(10));
 
         let events = vec![
             EventSnapshot {
@@ -120,11 +121,11 @@ mod tests {
 
     #[test]
     fn given_failed_events_when_from_events_called_should_set_failed_outcome() {
-        let job_id = 1;
+        let job_id = JobId::new();
         let outcome = JobOutcome::Failed;
         let outcome_reason = Some("Some error".to_string());
-        let t0 = OffsetDateTime::now_utc();
-        let t1 = t0 + time::Duration::seconds(10);
+        let t0 = Timestamp::now_utc();
+        let t1 = Timestamp::from(t0.as_inner() + time::Duration::seconds(10));
 
         let events = vec![
             EventSnapshot {
@@ -148,11 +149,11 @@ mod tests {
 
     #[test]
     fn given_canceled_events_when_from_events_called_should_set_canceled_outcome() {
-        let job_id = 1;
+        let job_id = JobId::new();
         let outcome = JobOutcome::Canceled;
         let outcome_reason = Some("Cancel by client".to_string());
-        let t0 = OffsetDateTime::now_utc();
-        let t1 = t0 + time::Duration::seconds(10);
+        let t0 = Timestamp::now_utc();
+        let t1 = Timestamp::from(t0.as_inner() + time::Duration::seconds(10));
 
         let events = vec![
             EventSnapshot {
@@ -176,10 +177,10 @@ mod tests {
 
     #[test]
     fn given_missing_started_event_when_from_events_called_should_return_error() {
-        let job_id = 1;
+        let job_id = JobId::new();
         let outcome = JobOutcome::Success;
         let outcome_reason = None;
-        let t0 = OffsetDateTime::now_utc();
+        let t0 = Timestamp::now_utc();
 
         let events = vec![EventSnapshot {
             event_name: EventName::JobSucceeded,
@@ -194,10 +195,10 @@ mod tests {
 
     #[test]
     fn given_missing_finished_event_when_from_events_called_should_return_error() {
-        let job_id = 1;
+        let job_id = JobId::new();
         let outcome = JobOutcome::Success;
         let outcome_reason = None;
-        let t0 = OffsetDateTime::now_utc();
+        let t0 = Timestamp::now_utc();
 
         let events = vec![EventSnapshot {
             event_name: EventName::JobStarted,
@@ -212,11 +213,11 @@ mod tests {
 
     #[test]
     fn given_events_when_from_events_called_should_compute_duration_ms() {
-        let job_id = 1;
+        let job_id = JobId::new();
         let outcome = JobOutcome::Success;
         let outcome_reason = None;
-        let t0 = OffsetDateTime::now_utc();
-        let t1 = t0 + time::Duration::milliseconds(1500);
+        let t0 = Timestamp::now_utc();
+        let t1 = Timestamp::from(t0.as_inner() + time::Duration::milliseconds(1500));
 
         let events = vec![
             EventSnapshot {
