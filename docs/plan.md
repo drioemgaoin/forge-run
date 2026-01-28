@@ -19,8 +19,8 @@ Tasks:
 - Define core domain types and enums in Rust (Est: 3–5h) | Tests: unit
 - Create minimal HTTP server skeleton with routing (Est: 2–3h) | Tests: integration (health endpoint)
 
-## Milestone 2 — State machine + domain model (Est: 18–28h)
-Goal: Job/Event/Report models and transitions with tests.
+## Milestone 2 — Domain model + state machine (Est: 18–28h)
+Goal: Job/Event/Report models, rules, and transitions with tests.
 
 Tasks:
 - Implement Job state machine with allowed transitions (Est: 6–8h) | Tests: unit + property
@@ -30,11 +30,11 @@ Tasks:
 - Build domain validation rules (Est: 2–4h) | Tests: unit
 
 ## Milestone 3 — Storage layer (Est: 20–30h)
-Goal: persistence for jobs/events/reports/clients/keys.
+Goal: persistence for jobs/events/reports/clients and API key fields on client.
 
 Tasks:
-- Choose storage backend (SQLite or file-based KV) and schema (Est: 2–4h) | Tests: none
-- Implement repositories for Job/Event/Report/Client/APIKey (Est: 10–14h) | Tests: integration
+- Choose storage backend (Postgres) and schema (Est: 2–4h) | Tests: none
+- Implement repositories for Job/Event/Report/Client (Est: 10–14h) | Tests: integration
 - Ensure atomicity for multi-write flows (Est: 4–6h) | Tests: integration
 - Add retention cleanup routines (Est: 4–6h) | Tests: integration
 
