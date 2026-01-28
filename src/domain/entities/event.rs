@@ -24,37 +24,53 @@ pub enum EventName {
     JobCanceled,
 }
 
+impl EventName {
+    pub fn is_start(self) -> bool {
+        matches!(self, EventName::JobStarted)
+    }
+
+    pub fn is_final(self) -> bool {
+        matches!(
+            self,
+            EventName::JobSucceeded | EventName::JobFailed | EventName::JobCanceled
+        )
+    }
+}
+
 impl Event {
     const TRANSITIONS: [((JobState, JobState), EventName); 10] = [
         ((JobState::Created, JobState::Queued), EventName::JobQueued),
-        ((JobState::Created, JobState::Canceled), EventName::JobCanceled),
-        ((JobState::Queued, JobState::Assigned), EventName::JobAssigned),
-        ((JobState::Queued, JobState::Canceled), EventName::JobCanceled),
-        ((JobState::Assigned, JobState::Running), EventName::JobStarted),
-        ((JobState::Assigned, JobState::Canceled), EventName::JobCanceled),
-        ((JobState::Running, JobState::Succeeded), EventName::JobSucceeded),
+        (
+            (JobState::Created, JobState::Canceled),
+            EventName::JobCanceled,
+        ),
+        (
+            (JobState::Queued, JobState::Assigned),
+            EventName::JobAssigned,
+        ),
+        (
+            (JobState::Queued, JobState::Canceled),
+            EventName::JobCanceled,
+        ),
+        (
+            (JobState::Assigned, JobState::Running),
+            EventName::JobStarted,
+        ),
+        (
+            (JobState::Assigned, JobState::Canceled),
+            EventName::JobCanceled,
+        ),
+        (
+            (JobState::Running, JobState::Succeeded),
+            EventName::JobSucceeded,
+        ),
         ((JobState::Running, JobState::Failed), EventName::JobFailed),
-        ((JobState::Running, JobState::Canceled), EventName::JobCanceled),
+        (
+            (JobState::Running, JobState::Canceled),
+            EventName::JobCanceled,
+        ),
         ((JobState::Failed, JobState::Queued), EventName::JobQueued),
     ];
-
-    fn new(
-        id: u64,
-        job_id: u64,
-        event_name: EventName,
-        prev_state: JobState,
-        next_state: JobState,
-        timestamp: OffsetDateTime,
-    ) -> Self {
-        Self {
-            id,
-            job_id,
-            event_name,
-            prev_state,
-            next_state,
-            timestamp,
-        }
-    }
 
     pub fn from_transition(
         id: u64,
@@ -68,14 +84,14 @@ impl Event {
             .find(|(pair, _)| pair.0 == prev_state && pair.1 == next_state)
             .map(|(_, name)| *name)
             .ok_or(TransitionError::Forbidden)?;
-        Ok(Self::new(
+        Ok(Self {
             id,
             job_id,
             event_name,
             prev_state,
             next_state,
             timestamp,
-        ))
+        })
     }
 }
 
