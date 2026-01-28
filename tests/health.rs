@@ -6,7 +6,12 @@ use tower::util::ServiceExt;
 #[tokio::test]
 async fn health_endpoint_works() {
     let response = http::app()
-        .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 

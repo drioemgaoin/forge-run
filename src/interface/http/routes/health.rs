@@ -1,4 +1,4 @@
-use axum::{routing::get, Json, Router};
+use axum::{Json, Router, routing::get};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -24,7 +24,12 @@ mod tests {
     #[tokio::test]
     async fn health_returns_ok() {
         let response = router()
-            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
