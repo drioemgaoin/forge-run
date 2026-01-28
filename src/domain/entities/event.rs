@@ -25,6 +25,19 @@ pub enum EventName {
 }
 
 impl Event {
+    const TRANSITIONS: [((JobState, JobState), EventName); 10] = [
+        ((JobState::Created, JobState::Queued), EventName::JobQueued),
+        ((JobState::Created, JobState::Canceled), EventName::JobCanceled),
+        ((JobState::Queued, JobState::Assigned), EventName::JobAssigned),
+        ((JobState::Queued, JobState::Canceled), EventName::JobCanceled),
+        ((JobState::Assigned, JobState::Running), EventName::JobStarted),
+        ((JobState::Assigned, JobState::Canceled), EventName::JobCanceled),
+        ((JobState::Running, JobState::Succeeded), EventName::JobSucceeded),
+        ((JobState::Running, JobState::Failed), EventName::JobFailed),
+        ((JobState::Running, JobState::Canceled), EventName::JobCanceled),
+        ((JobState::Failed, JobState::Queued), EventName::JobQueued),
+    ];
+
     fn new(
         id: u64,
         job_id: u64,
@@ -50,19 +63,11 @@ impl Event {
         next_state: JobState,
         timestamp: OffsetDateTime,
     ) -> Result<Self, TransitionError> {
-        let event_name = match (prev_state, next_state) {
-            (JobState::Created, JobState::Queued) => EventName::JobQueued,
-            (JobState::Created, JobState::Canceled) => EventName::JobCanceled,
-            (JobState::Queued, JobState::Assigned) => EventName::JobAssigned,
-            (JobState::Queued, JobState::Canceled) => EventName::JobCanceled,
-            (JobState::Assigned, JobState::Running) => EventName::JobStarted,
-            (JobState::Assigned, JobState::Canceled) => EventName::JobCanceled,
-            (JobState::Running, JobState::Succeeded) => EventName::JobSucceeded,
-            (JobState::Running, JobState::Failed) => EventName::JobFailed,
-            (JobState::Running, JobState::Canceled) => EventName::JobCanceled,
-            (JobState::Failed, JobState::Queued) => EventName::JobQueued,
-            _ => return Err(TransitionError::Forbidden),
-        };
+        let event_name = Self::TRANSITIONS
+            .iter()
+            .find(|(pair, _)| pair.0 == prev_state && pair.1 == next_state)
+            .map(|(_, name)| *name)
+            .ok_or(TransitionError::Forbidden)?;
         Ok(Self::new(
             id,
             job_id,
