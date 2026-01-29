@@ -3,6 +3,7 @@ use crate::domain::entities::job::JobState;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransitionError {
     Forbidden,
+    InvalidTimestamp,
 }
 
 pub struct JobStateMachine;
@@ -101,6 +102,5 @@ mod tests {
         }
     }
 }
-
 
 

@@ -1,10 +1,10 @@
 // Use case: submit_job.
-// Orchestrates validation, job definition generation, persistence, and enqueue.
+// Orchestrates validation, persistence, and enqueue.
 // No implementation yet.
 
-use crate::domain::services::job_definition::JobDefinitionGenerator;
+use crate::domain::services::job_lifecycle::JobLifecycleService;
 
 #[allow(dead_code)]
-pub struct SubmitJobUseCase<G: JobDefinitionGenerator> {
-    pub generator: G,
+pub struct SubmitJobUseCase<S: JobLifecycleService> {
+    pub lifecycle: S,
 }

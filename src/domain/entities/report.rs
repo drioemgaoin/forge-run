@@ -2,6 +2,7 @@ use crate::domain::entities::event::EventName;
 use crate::domain::entities::job::{JobOutcome, JobState};
 use crate::domain::value_objects::ids::JobId;
 use crate::domain::value_objects::timestamps::Timestamp;
+use crate::domain::workflows::state_machine::JobStateMachine;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReportError {
@@ -9,6 +10,13 @@ pub enum ReportError {
     MissingFinishedEvent,
     StartedEventNotFirst,
     FinishedEventNotLast,
+    OutcomeMismatch,
+    InvalidTransition,
+    NonContiguousEvents,
+    MultipleStartedEvents,
+    MultipleFinishedEvents,
+    MultipleCreatedEvents,
+    CreatedEventNotFirst,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,20 +49,30 @@ impl Report {
             return Err(ReportError::MissingStartedEvent);
         }
 
+        // Sort events by timestamp
         events.sort_by_key(|e| e.timestamp.as_inner());
 
-        let started_at = events
-            .iter()
-            .find(|e| e.event_name.is_start())
-            .map(|e| e.timestamp)
-            .ok_or(ReportError::MissingStartedEvent)?;
+        // Find the started_at timestamp
+        let started_events: Vec<&EventSnapshot> =
+            events.iter().filter(|e| e.event_name.is_start()).collect();
+        if started_events.is_empty() {
+            return Err(ReportError::MissingStartedEvent);
+        }
+        if started_events.len() > 1 {
+            return Err(ReportError::MultipleStartedEvents);
+        }
+        let started_at = started_events[0].timestamp;
 
-        let finished_at = events
-            .iter()
-            .rev()
-            .find(|e| e.event_name.is_final())
-            .map(|e| e.timestamp)
-            .ok_or(ReportError::MissingFinishedEvent)?;
+        // Find the finished_at timestamp
+        let finished_events: Vec<&EventSnapshot> =
+            events.iter().filter(|e| e.event_name.is_final()).collect();
+        if finished_events.is_empty() {
+            return Err(ReportError::MissingFinishedEvent);
+        }
+        if finished_events.len() > 1 {
+            return Err(ReportError::MultipleFinishedEvents);
+        }
+        let finished_at = finished_events[0].timestamp;
 
         let first_ts = events
             .first()
@@ -70,6 +88,37 @@ impl Report {
         }
         if finished_at != last_ts {
             return Err(ReportError::FinishedEventNotLast);
+        }
+
+        let final_event = finished_events[0];
+        let matches_outcome = match (final_event.event_name, outcome) {
+            (EventName::JobSucceeded, JobOutcome::Success) => true,
+            (EventName::JobFailed, JobOutcome::Failed) => true,
+            (EventName::JobCanceled, JobOutcome::Canceled) => true,
+            _ => false,
+        };
+        if !matches_outcome {
+            return Err(ReportError::OutcomeMismatch);
+        }
+
+        for event in &events {
+            if event.event_name == EventName::JobCreated {
+                continue;
+            }
+            if !JobStateMachine::can_transition(event.prev_state, event.next_state) {
+                return Err(ReportError::InvalidTransition);
+            }
+        }
+
+        for pair in events.windows(2) {
+            let prev = &pair[0];
+            let next = &pair[1];
+            if prev.event_name == EventName::JobCreated {
+                continue;
+            }
+            if prev.next_state != next.prev_state {
+                return Err(ReportError::NonContiguousEvents);
+            }
         }
 
         let duration = finished_at.as_inner() - started_at.as_inner();
@@ -96,27 +145,34 @@ mod tests {
         let outcome = JobOutcome::Success;
         let outcome_reason = None;
         let t0 = Timestamp::now_utc();
-        let t1 = Timestamp::from(t0.as_inner() + time::Duration::seconds(10));
+        let t1 = Timestamp::from(t0.as_inner() + time::Duration::seconds(1));
+        let t2 = Timestamp::from(t0.as_inner() + time::Duration::seconds(10));
 
         let events = vec![
+            EventSnapshot {
+                event_name: EventName::JobCreated,
+                prev_state: JobState::Created,
+                next_state: JobState::Created,
+                timestamp: t0,
+            },
             EventSnapshot {
                 event_name: EventName::JobStarted,
                 prev_state: JobState::Assigned,
                 next_state: JobState::Running,
-                timestamp: t0,
+                timestamp: t1,
             },
             EventSnapshot {
                 event_name: EventName::JobSucceeded,
                 prev_state: JobState::Running,
                 next_state: JobState::Succeeded,
-                timestamp: t1,
+                timestamp: t2,
             },
         ];
 
         let result = Report::from_events(job_id, outcome, outcome_reason, events).unwrap();
         assert_eq!(result.outcome, JobOutcome::Success);
         assert_eq!(result.started_at, t0);
-        assert_eq!(result.finished_at, t1);
+        assert_eq!(result.finished_at, t2);
     }
 
     #[test]
@@ -125,20 +181,27 @@ mod tests {
         let outcome = JobOutcome::Failed;
         let outcome_reason = Some("Some error".to_string());
         let t0 = Timestamp::now_utc();
-        let t1 = Timestamp::from(t0.as_inner() + time::Duration::seconds(10));
+        let t1 = Timestamp::from(t0.as_inner() + time::Duration::seconds(1));
+        let t2 = Timestamp::from(t0.as_inner() + time::Duration::seconds(10));
 
         let events = vec![
+            EventSnapshot {
+                event_name: EventName::JobCreated,
+                prev_state: JobState::Created,
+                next_state: JobState::Created,
+                timestamp: t0,
+            },
             EventSnapshot {
                 event_name: EventName::JobStarted,
                 prev_state: JobState::Assigned,
                 next_state: JobState::Running,
-                timestamp: t0,
+                timestamp: t1,
             },
             EventSnapshot {
                 event_name: EventName::JobFailed,
                 prev_state: JobState::Running,
                 next_state: JobState::Failed,
-                timestamp: t1,
+                timestamp: t2,
             },
         ];
 
@@ -153,20 +216,27 @@ mod tests {
         let outcome = JobOutcome::Canceled;
         let outcome_reason = Some("Cancel by client".to_string());
         let t0 = Timestamp::now_utc();
-        let t1 = Timestamp::from(t0.as_inner() + time::Duration::seconds(10));
+        let t1 = Timestamp::from(t0.as_inner() + time::Duration::seconds(1));
+        let t2 = Timestamp::from(t0.as_inner() + time::Duration::seconds(10));
 
         let events = vec![
+            EventSnapshot {
+                event_name: EventName::JobCreated,
+                prev_state: JobState::Created,
+                next_state: JobState::Created,
+                timestamp: t0,
+            },
             EventSnapshot {
                 event_name: EventName::JobStarted,
                 prev_state: JobState::Assigned,
                 next_state: JobState::Running,
-                timestamp: t0,
+                timestamp: t1,
             },
             EventSnapshot {
                 event_name: EventName::JobCanceled,
                 prev_state: JobState::Running,
                 next_state: JobState::Canceled,
-                timestamp: t1,
+                timestamp: t2,
             },
         ];
 
@@ -182,43 +252,6 @@ mod tests {
         let outcome_reason = None;
         let t0 = Timestamp::now_utc();
 
-        let events = vec![EventSnapshot {
-            event_name: EventName::JobSucceeded,
-            prev_state: JobState::Running,
-            next_state: JobState::Succeeded,
-            timestamp: t0,
-        }];
-
-        let result = Report::from_events(job_id, outcome, outcome_reason, events);
-        assert_eq!(result, Err(ReportError::MissingStartedEvent));
-    }
-
-    #[test]
-    fn given_missing_finished_event_when_from_events_called_should_return_error() {
-        let job_id = JobId::new();
-        let outcome = JobOutcome::Success;
-        let outcome_reason = None;
-        let t0 = Timestamp::now_utc();
-
-        let events = vec![EventSnapshot {
-            event_name: EventName::JobStarted,
-            prev_state: JobState::Assigned,
-            next_state: JobState::Running,
-            timestamp: t0,
-        }];
-
-        let result = Report::from_events(job_id, outcome, outcome_reason, events);
-        assert_eq!(result, Err(ReportError::MissingFinishedEvent));
-    }
-
-    #[test]
-    fn given_events_when_from_events_called_should_compute_duration_ms() {
-        let job_id = JobId::new();
-        let outcome = JobOutcome::Success;
-        let outcome_reason = None;
-        let t0 = Timestamp::now_utc();
-        let t1 = Timestamp::from(t0.as_inner() + time::Duration::milliseconds(1500));
-
         let events = vec![
             EventSnapshot {
                 event_name: EventName::JobStarted,
@@ -230,11 +263,147 @@ mod tests {
                 event_name: EventName::JobSucceeded,
                 prev_state: JobState::Running,
                 next_state: JobState::Succeeded,
+                timestamp: t0,
+            },
+        ];
+
+        let result = Report::from_events(job_id, outcome, outcome_reason, events);
+        assert_eq!(result, Err(ReportError::MissingStartedEvent));
+    }
+
+    #[test]
+    fn given_missing_finished_event_when_from_events_called_should_return_error() {
+        let job_id = JobId::new();
+        let outcome = JobOutcome::Success;
+        let outcome_reason = None;
+        let t0 = Timestamp::now_utc();
+        let t1 = Timestamp::from(t0.as_inner() + time::Duration::seconds(1));
+
+        let events = vec![
+            EventSnapshot {
+                event_name: EventName::JobCreated,
+                prev_state: JobState::Created,
+                next_state: JobState::Created,
+                timestamp: t0,
+            },
+            EventSnapshot {
+                event_name: EventName::JobStarted,
+                prev_state: JobState::Assigned,
+                next_state: JobState::Running,
                 timestamp: t1,
             },
         ];
 
+        let result = Report::from_events(job_id, outcome, outcome_reason, events);
+        assert_eq!(result, Err(ReportError::MissingFinishedEvent));
+    }
+
+    #[test]
+    fn given_events_when_from_events_called_should_compute_duration_ms() {
+        let job_id = JobId::new();
+        let outcome = JobOutcome::Success;
+        let outcome_reason = None;
+        let t0 = Timestamp::now_utc();
+        let t1 = Timestamp::from(t0.as_inner() + time::Duration::seconds(1));
+        let t2 = Timestamp::from(t0.as_inner() + time::Duration::milliseconds(2500));
+
+        let events = vec![
+            EventSnapshot {
+                event_name: EventName::JobCreated,
+                prev_state: JobState::Created,
+                next_state: JobState::Created,
+                timestamp: t0,
+            },
+            EventSnapshot {
+                event_name: EventName::JobStarted,
+                prev_state: JobState::Assigned,
+                next_state: JobState::Running,
+                timestamp: t1,
+            },
+            EventSnapshot {
+                event_name: EventName::JobSucceeded,
+                prev_state: JobState::Running,
+                next_state: JobState::Succeeded,
+                timestamp: t2,
+            },
+        ];
+
         let report = Report::from_events(job_id, outcome, outcome_reason, events).unwrap();
-        assert_eq!(report.duration_ms, 1500);
+        assert_eq!(report.duration_ms, 2500);
+    }
+
+    #[test]
+    fn given_outcome_mismatch_when_from_events_called_should_return_error() {
+        let job_id = JobId::new();
+        let outcome = JobOutcome::Success;
+        let outcome_reason = None;
+        let t0 = Timestamp::now_utc();
+        let t1 = Timestamp::from(t0.as_inner() + time::Duration::seconds(1));
+        let t2 = Timestamp::from(t0.as_inner() + time::Duration::seconds(10));
+
+        let events = vec![
+            EventSnapshot {
+                event_name: EventName::JobCreated,
+                prev_state: JobState::Created,
+                next_state: JobState::Created,
+                timestamp: t0,
+            },
+            EventSnapshot {
+                event_name: EventName::JobStarted,
+                prev_state: JobState::Assigned,
+                next_state: JobState::Running,
+                timestamp: t1,
+            },
+            EventSnapshot {
+                event_name: EventName::JobFailed,
+                prev_state: JobState::Running,
+                next_state: JobState::Failed,
+                timestamp: t2,
+            },
+        ];
+
+        let result = Report::from_events(job_id, outcome, outcome_reason, events);
+        assert_eq!(result, Err(ReportError::OutcomeMismatch));
+    }
+
+    #[test]
+    fn given_non_contiguous_events_when_from_events_called_should_return_error() {
+        let job_id = JobId::new();
+        let outcome = JobOutcome::Success;
+        let outcome_reason = None;
+        let t0 = Timestamp::now_utc();
+        let t1 = Timestamp::from(t0.as_inner() + time::Duration::seconds(1));
+        let t2 = Timestamp::from(t0.as_inner() + time::Duration::seconds(5));
+        let t3 = Timestamp::from(t0.as_inner() + time::Duration::seconds(10));
+
+        let events = vec![
+            EventSnapshot {
+                event_name: EventName::JobCreated,
+                prev_state: JobState::Created,
+                next_state: JobState::Created,
+                timestamp: t0,
+            },
+            EventSnapshot {
+                event_name: EventName::JobStarted,
+                prev_state: JobState::Assigned,
+                next_state: JobState::Running,
+                timestamp: t1,
+            },
+            EventSnapshot {
+                event_name: EventName::JobQueued,
+                prev_state: JobState::Created,
+                next_state: JobState::Queued,
+                timestamp: t2,
+            },
+            EventSnapshot {
+                event_name: EventName::JobSucceeded,
+                prev_state: JobState::Running,
+                next_state: JobState::Succeeded,
+                timestamp: t3,
+            },
+        ];
+
+        let result = Report::from_events(job_id, outcome, outcome_reason, events);
+        assert_eq!(result, Err(ReportError::NonContiguousEvents));
     }
 }
