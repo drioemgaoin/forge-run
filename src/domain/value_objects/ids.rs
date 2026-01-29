@@ -5,6 +5,12 @@ macro_rules! id_type {
         #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
         pub struct $name(pub u128);
 
+        impl Default for $name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
         impl $name {
             #[inline]
             pub fn new() -> Self {

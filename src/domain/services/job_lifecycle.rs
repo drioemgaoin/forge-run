@@ -21,7 +21,7 @@ pub trait JobLifecycleService {
         // TODO(persistence): persist job.
 
         // Step 3: Emit and persist a JobCreated event.
-        let created_event = Event::new_created(EventId::new(), job.id, Timestamp::now_utc());
+        let _created_event = Event::new_created(EventId::new(), job.id, Timestamp::now_utc());
         // TODO(persistence): persist created_event.
 
         // Step 4: Return the created job.
@@ -43,7 +43,7 @@ pub trait JobLifecycleService {
         // TODO(persistence): persist job.
 
         // Step 3: Emit and persist a JobCreated event.
-        let created_event = Event::new_created(EventId::new(), job.id, Timestamp::now_utc());
+        let _created_event = Event::new_created(EventId::new(), job.id, Timestamp::now_utc());
         // TODO(persistence): persist created_event.
 
         // Step 4: Return the created job.

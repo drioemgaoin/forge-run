@@ -71,10 +71,10 @@ impl Job {
             None => return Err(JobValidationError::MissingWorkKind),
         };
 
-        if let Some(callback) = callback_url.as_deref() {
-            if !Self::is_valid_callback_url(callback) {
-                return Err(JobValidationError::InvalidCallbackUrl);
-            }
+        if let Some(callback) = callback_url.as_deref()
+            && !Self::is_valid_callback_url(callback)
+        {
+            return Err(JobValidationError::InvalidCallbackUrl);
         }
 
         Ok(Self {
@@ -85,7 +85,7 @@ impl Job {
             attempt: 0,
             outcome: None,
             outcome_reason: None,
-            executed_at: executed_at,
+            executed_at,
             created_at: now,
             updated_at: now,
             callback_url,
@@ -122,7 +122,7 @@ impl Job {
             return Err(JobValidationError::ExecutionAtInPast);
         }
 
-        Ok(Self::new(
+        Self::new(
             id,
             client_id,
             JobType::Deferred,
@@ -130,7 +130,7 @@ impl Job {
             callback_url,
             working_kind,
             now,
-        )?)
+        )
     }
 
     pub fn mark_succeeded(&mut self) -> Result<(), JobValidationError> {

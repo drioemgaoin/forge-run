@@ -91,12 +91,12 @@ impl Report {
         }
 
         let final_event = finished_events[0];
-        let matches_outcome = match (final_event.event_name, outcome) {
-            (EventName::JobSucceeded, JobOutcome::Success) => true,
-            (EventName::JobFailed, JobOutcome::Failed) => true,
-            (EventName::JobCanceled, JobOutcome::Canceled) => true,
-            _ => false,
-        };
+        let matches_outcome = matches!(
+            (final_event.event_name, outcome),
+            (EventName::JobSucceeded, JobOutcome::Success)
+                | (EventName::JobFailed, JobOutcome::Failed)
+                | (EventName::JobCanceled, JobOutcome::Canceled)
+        );
         if !matches_outcome {
             return Err(ReportError::OutcomeMismatch);
         }

@@ -72,8 +72,14 @@ mod tests {
         ];
 
         for to in states {
-            assert_eq!(JobStateMachine::transition(JobState::Succeeded, to), Err(TransitionError::Forbidden));
-            assert_eq!(JobStateMachine::transition(JobState::Canceled, to), Err(TransitionError::Forbidden));
+            assert_eq!(
+                JobStateMachine::transition(JobState::Succeeded, to),
+                Err(TransitionError::Forbidden)
+            );
+            assert_eq!(
+                JobStateMachine::transition(JobState::Canceled, to),
+                Err(TransitionError::Forbidden)
+            );
         }
     }
 
@@ -102,5 +108,3 @@ mod tests {
         }
     }
 }
-
-
