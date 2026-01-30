@@ -43,7 +43,9 @@ fn sample_deferred_job() -> Job {
 
 #[tokio::test]
 async fn given_job_when_insert_should_return_stored_job() {
-    let Some(repo) = setup_repo().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
     let job = sample_instant_job();
 
     let stored = repo.insert(&job).await.unwrap();
@@ -56,7 +58,9 @@ async fn given_job_when_insert_should_return_stored_job() {
 
 #[tokio::test]
 async fn given_existing_job_when_get_should_return_job() {
-    let Some(repo) = setup_repo().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
     let job = sample_instant_job();
     let stored = repo.insert(&job).await.unwrap();
 
@@ -69,7 +73,9 @@ async fn given_existing_job_when_get_should_return_job() {
 
 #[tokio::test]
 async fn given_existing_job_when_update_should_return_updated_job() {
-    let Some(repo) = setup_repo().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
     let mut job = sample_instant_job();
     let stored = repo.insert(&job).await.unwrap();
     job.state = JobState::Queued;
@@ -84,9 +90,13 @@ async fn given_existing_job_when_update_should_return_updated_job() {
 
 #[tokio::test]
 async fn given_deferred_job_due_when_list_due_deferred_should_return_job() {
-    let Some(repo) = setup_repo().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
     let mut job = sample_deferred_job();
-    job.executed_at = Some(Timestamp::from(OffsetDateTime::now_utc() - time::Duration::seconds(1)));
+    job.executed_at = Some(Timestamp::from(
+        OffsetDateTime::now_utc() - time::Duration::seconds(1),
+    ));
     let stored = repo.insert(&job).await.unwrap();
 
     let jobs = repo
@@ -100,7 +110,9 @@ async fn given_deferred_job_due_when_list_due_deferred_should_return_job() {
 
 #[tokio::test]
 async fn given_queued_job_when_claim_next_queued_should_assign_job() {
-    let Some(repo) = setup_repo().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
     let mut job = sample_instant_job();
     job.state = JobState::Queued;
     job.updated_at = Timestamp::now_utc();
@@ -117,7 +129,9 @@ async fn given_queued_job_when_claim_next_queued_should_assign_job() {
 
 #[tokio::test]
 async fn given_missing_job_when_get_should_return_none() {
-    let Some(repo) = setup_repo().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
 
     let fetched = repo.get(JobId::new()).await.unwrap();
 

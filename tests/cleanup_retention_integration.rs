@@ -3,12 +3,12 @@ use forge_run::domain::entities::job::{Job, JobOutcome, JobState};
 use forge_run::domain::value_objects::ids::{ClientId, JobId};
 use forge_run::domain::value_objects::timestamps::Timestamp;
 use forge_run::infrastructure::db::dto::{ApiKeyRow, ClientRow, EventRow, JobRow, ReportRow};
+use forge_run::infrastructure::db::postgres::PostgresDatabase;
 use forge_run::infrastructure::db::postgres::api_key_store_postgres::ApiKeyStorePostgres;
 use forge_run::infrastructure::db::postgres::client_store_postgres::ClientStorePostgres;
 use forge_run::infrastructure::db::postgres::event_store_postgres::EventStorePostgres;
 use forge_run::infrastructure::db::postgres::job_store_postgres::JobStorePostgres;
 use forge_run::infrastructure::db::postgres::report_store_postgres::ReportStorePostgres;
-use forge_run::infrastructure::db::postgres::PostgresDatabase;
 use forge_run::infrastructure::db::stores::api_key_store::ApiKeyStore;
 use forge_run::infrastructure::db::stores::client_store::ClientStore;
 use forge_run::infrastructure::db::stores::event_store::EventStore;
@@ -23,7 +23,9 @@ fn test_db_url() -> Option<String> {
 
 #[tokio::test]
 async fn given_expired_job_and_revoked_key_when_cleanup_should_delete_both() {
-    let Some(url) = test_db_url() else { return; };
+    let Some(url) = test_db_url() else {
+        return;
+    };
     let db = Arc::new(PostgresDatabase::connect(&url).await.unwrap());
     let usecase = CleanupRetentionUseCase { db: db.clone() };
 

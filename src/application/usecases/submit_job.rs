@@ -1,9 +1,10 @@
 // Use case: submit_job.
 // Orchestrates validation, persistence, and enqueue.
 
-use crate::domain::services::job_lifecycle::JobLifecycleError;
 use crate::domain::entities::event::Event;
 use crate::domain::entities::job::Job;
+use crate::domain::services::job_lifecycle::JobLifecycleError;
+use crate::domain::value_objects::ids::{ClientId, JobId};
 use crate::domain::value_objects::timestamps::Timestamp;
 use crate::infrastructure::db::database::DatabaseError;
 use crate::infrastructure::db::dto::{EventRow, IdempotencyKeyRow, JobRow};
@@ -11,7 +12,6 @@ use crate::infrastructure::db::postgres::PostgresDatabase;
 use crate::infrastructure::db::stores::event_store::EventStore;
 use crate::infrastructure::db::stores::idempotency_key_store::IdempotencyKeyStore;
 use crate::infrastructure::db::stores::job_store::JobStore;
-use crate::domain::value_objects::ids::{ClientId, JobId};
 use std::sync::Arc;
 
 #[allow(dead_code)]
@@ -76,26 +76,28 @@ where
                         if let Some(existing) = idempotency_store
                             .get_tx(tx, client_id.0, &key)
                             .await
-                            .map_err(|e| DatabaseError::Query(format!("{e:?}")))? {
-                            if let Some(existing_job_id) = existing.job_id {
-                                let Some(job_row) = job_store
-                                    .get_tx(tx, existing_job_id)
-                                    .await
-                                    .map_err(|e| DatabaseError::Query(format!("{e:?}")))? else {
-                                    return Err(DatabaseError::Query(
-                                        "idempotency_job_missing".to_string(),
-                                    ));
-                                };
-                                let Some(event_row) = event_store
-                                    .get_by_job_id_and_name_tx(tx, existing_job_id, "job_created")
-                                    .await
-                                    .map_err(|e| DatabaseError::Query(format!("{e:?}")))? else {
-                                    return Err(DatabaseError::Query(
-                                        "idempotency_event_missing".to_string(),
-                                    ));
-                                };
-                                return Ok((job_row, event_row));
-                            }
+                            .map_err(|e| DatabaseError::Query(format!("{e:?}")))?
+                            && let Some(existing_job_id) = existing.job_id
+                        {
+                            let Some(job_row) = job_store
+                                .get_tx(tx, existing_job_id)
+                                .await
+                                .map_err(|e| DatabaseError::Query(format!("{e:?}")))?
+                            else {
+                                return Err(DatabaseError::Query(
+                                    "idempotency_job_missing".to_string(),
+                                ));
+                            };
+                            let Some(event_row) = event_store
+                                .get_by_job_id_and_name_tx(tx, existing_job_id, "job_created")
+                                .await
+                                .map_err(|e| DatabaseError::Query(format!("{e:?}")))?
+                            else {
+                                return Err(DatabaseError::Query(
+                                    "idempotency_event_missing".to_string(),
+                                ));
+                            };
+                            return Ok((job_row, event_row));
                         }
 
                         // Step 3: Build the job + event for a new idempotency key.
@@ -115,8 +117,11 @@ where
                                 .map_err(JobLifecycleError::Validation)
                                 .map_err(|e| DatabaseError::Query(format!("{e:?}")))?
                         };
-                        let created_event =
-                            Event::new_created(crate::domain::value_objects::ids::EventId::new(), job.id, now);
+                        let created_event = Event::new_created(
+                            crate::domain::value_objects::ids::EventId::new(),
+                            job.id,
+                            now,
+                        );
 
                         let job_row = JobRow::from_job(&job);
                         let event_row = EventRow::from_event(&created_event);
@@ -160,8 +165,11 @@ where
                                 .map_err(JobLifecycleError::Validation)
                                 .map_err(|e| DatabaseError::Query(format!("{e:?}")))?
                         };
-                        let created_event =
-                            Event::new_created(crate::domain::value_objects::ids::EventId::new(), job.id, now);
+                        let created_event = Event::new_created(
+                            crate::domain::value_objects::ids::EventId::new(),
+                            job.id,
+                            now,
+                        );
 
                         let job_row = JobRow::from_job(&job);
                         let event_row = EventRow::from_event(&created_event);
@@ -196,11 +204,11 @@ mod tests {
     use super::{SubmitJobCommand, SubmitJobUseCase};
     use crate::domain::value_objects::ids::ClientId;
     use crate::domain::value_objects::timestamps::Timestamp;
+    use crate::infrastructure::db::postgres::PostgresDatabase;
+    use crate::infrastructure::db::postgres::client_store_postgres::ClientStorePostgres;
     use crate::infrastructure::db::postgres::event_store_postgres::EventStorePostgres;
     use crate::infrastructure::db::postgres::idempotency_key_store_postgres::IdempotencyKeyStorePostgres;
     use crate::infrastructure::db::postgres::job_store_postgres::JobStorePostgres;
-    use crate::infrastructure::db::postgres::client_store_postgres::ClientStorePostgres;
-    use crate::infrastructure::db::postgres::PostgresDatabase;
     use crate::infrastructure::db::stores::client_store::ClientStore;
     use crate::infrastructure::db::stores::event_store::EventStore;
     use crate::infrastructure::db::stores::idempotency_key_store::IdempotencyKeyStore;
@@ -213,7 +221,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_same_idempotency_key_when_execute_should_return_same_job() {
-        let Some(url) = test_db_url() else { return; };
+        let Some(url) = test_db_url() else {
+            return;
+        };
         let db = Arc::new(PostgresDatabase::connect(&url).await.unwrap());
         let job_store = JobStorePostgres::new(db.clone());
         let event_store = EventStorePostgres::new(db.clone());
@@ -250,10 +260,7 @@ mod tests {
 
         event_store.delete(first.created_event.id.0).await.unwrap();
         job_store.delete(first.job.id.0).await.unwrap();
-        id_store
-            .delete(client_id.0, "same-key")
-            .await
-            .unwrap();
+        id_store.delete(client_id.0, "same-key").await.unwrap();
         client_store.delete(client_id.0).await.unwrap();
     }
 }

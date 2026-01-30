@@ -1,4 +1,3 @@
-use crate::infrastructure::db::database::DatabaseError;
 use crate::infrastructure::db::dto::EventRow;
 use crate::infrastructure::db::postgres::PostgresDatabase;
 use crate::infrastructure::db::stores::event_store::{EventRepositoryError, EventStore};
@@ -34,9 +33,7 @@ impl EventStorePostgres {
         .bind(event_id)
         .fetch_optional(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => EventRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| EventRepositoryError::StorageUnavailable)?;
 
         Ok(row)
     }
@@ -73,9 +70,7 @@ impl EventStorePostgres {
         .bind(row.occurred_at)
         .fetch_one(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => EventRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| EventRepositoryError::StorageUnavailable)?;
 
         Ok(stored)
     }
@@ -106,9 +101,7 @@ impl EventStorePostgres {
         .bind(row.occurred_at)
         .fetch_optional(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => EventRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| EventRepositoryError::StorageUnavailable)?;
 
         match stored {
             Some(row) => Ok(row),
@@ -124,9 +117,7 @@ impl EventStorePostgres {
             .bind(event_id)
             .execute(&mut *conn)
             .await
-            .map_err(|e| match DatabaseError::Query(e.to_string()) {
-                _ => EventRepositoryError::StorageUnavailable,
-            })?;
+            .map_err(|_| EventRepositoryError::StorageUnavailable)?;
 
         if result.rows_affected() == 0 {
             return Err(EventRepositoryError::NotFound);
@@ -157,9 +148,7 @@ impl EventStorePostgres {
         .bind(event_name)
         .fetch_optional(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => EventRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| EventRepositoryError::StorageUnavailable)?;
 
         Ok(row)
     }
@@ -183,9 +172,7 @@ impl EventStorePostgres {
         .bind(job_id)
         .fetch_all(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => EventRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| EventRepositoryError::StorageUnavailable)?;
 
         Ok(rows)
     }

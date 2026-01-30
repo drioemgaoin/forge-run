@@ -34,7 +34,7 @@ impl PostgresDatabase {
             .pool
             .acquire()
             .await
-            .map_err(|e| DatabaseError::Connection(e.to_string()).into())?;
+            .map_err(|e| DatabaseError::Connection(e.to_string()))?;
         f(&mut conn).await
     }
 
@@ -42,7 +42,8 @@ impl PostgresDatabase {
     where
         for<'c> F: FnOnce(
             &'c mut sqlx::Transaction<'_, sqlx::Postgres>,
-        ) -> Pin<Box<dyn Future<Output = Result<T, DatabaseError>> + Send + 'c>>,
+        )
+            -> Pin<Box<dyn Future<Output = Result<T, DatabaseError>> + Send + 'c>>,
     {
         let mut tx = self
             .pool
@@ -88,7 +89,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_valid_database_url_when_execute_should_return_rows_affected() {
-        let Some(url) = test_db_url() else { return; };
+        let Some(url) = test_db_url() else {
+            return;
+        };
         let db = PostgresDatabase::connect(&url).await.unwrap();
 
         let rows = db.execute("SELECT 1").await.unwrap();
@@ -97,7 +100,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_connection_when_with_conn_should_run_query_and_return_value() {
-        let Some(url) = test_db_url() else { return; };
+        let Some(url) = test_db_url() else {
+            return;
+        };
         let db = PostgresDatabase::connect(&url).await.unwrap();
 
         let value: i64 = db
@@ -118,20 +123,21 @@ mod tests {
 
     #[tokio::test]
     async fn given_transaction_when_success_should_commit_and_return_value() {
-        let Some(url) = test_db_url() else { return; };
+        let Some(url) = test_db_url() else {
+            return;
+        };
         let db = PostgresDatabase::connect(&url).await.unwrap();
 
-        let result = db
-            .with_tx(|_tx| Box::pin(async { Ok(1) }))
-            .await
-            .unwrap();
+        let result = db.with_tx(|_tx| Box::pin(async { Ok(1) })).await.unwrap();
 
         assert_eq!(result, 1);
     }
 
     #[tokio::test]
     async fn given_transaction_when_error_should_rollback_and_return_error() {
-        let Some(url) = test_db_url() else { return; };
+        let Some(url) = test_db_url() else {
+            return;
+        };
         let db = PostgresDatabase::connect(&url).await.unwrap();
 
         let result: Result<(), DatabaseError> = db

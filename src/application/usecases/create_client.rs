@@ -86,7 +86,7 @@ mod tests {
 
         let client = usecase.execute().await.unwrap();
 
-        assert_eq!(client.id.0.is_nil(), false);
+        assert!(!client.id.0.is_nil());
     }
 
     #[tokio::test]

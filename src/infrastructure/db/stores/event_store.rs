@@ -16,18 +16,6 @@ impl From<DatabaseError> for EventRepositoryError {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::EventRepositoryError;
-    use crate::infrastructure::db::database::DatabaseError;
-
-    #[test]
-    fn given_database_error_when_converted_should_map_to_storage_unavailable() {
-        let err = EventRepositoryError::from(DatabaseError::Query("boom".to_string()));
-        assert_eq!(err, EventRepositoryError::StorageUnavailable);
-    }
-}
-
 #[async_trait]
 pub trait EventStore: Send + Sync {
     /// Fetch an event by its ID. Returns `None` if it doesn't exist.
@@ -87,4 +75,16 @@ pub trait EventStore: Send + Sync {
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         job_id: uuid::Uuid,
     ) -> Result<Vec<EventRow>, EventRepositoryError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EventRepositoryError;
+    use crate::infrastructure::db::database::DatabaseError;
+
+    #[test]
+    fn given_database_error_when_converted_should_map_to_storage_unavailable() {
+        let err = EventRepositoryError::from(DatabaseError::Query("boom".to_string()));
+        assert_eq!(err, EventRepositoryError::StorageUnavailable);
+    }
 }

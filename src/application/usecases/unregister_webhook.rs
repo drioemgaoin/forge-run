@@ -56,7 +56,8 @@ mod tests {
         async fn get(
             &self,
             _webhook_id: uuid::Uuid,
-        ) -> Result<Option<crate::infrastructure::db::dto::WebhookRow>, WebhookRepositoryError> {
+        ) -> Result<Option<crate::infrastructure::db::dto::WebhookRow>, WebhookRepositoryError>
+        {
             Ok(None)
         }
 
@@ -68,7 +69,7 @@ mod tests {
         }
 
         async fn delete(&self, _webhook_id: uuid::Uuid) -> Result<(), WebhookRepositoryError> {
-            self.result.clone()
+            self.result
         }
     }
 

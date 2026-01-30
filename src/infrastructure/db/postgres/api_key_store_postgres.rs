@@ -1,4 +1,3 @@
-use crate::infrastructure::db::database::DatabaseError;
 use crate::infrastructure::db::dto::ApiKeyRow;
 use crate::infrastructure::db::postgres::PostgresDatabase;
 use crate::infrastructure::db::stores::api_key_store::{ApiKeyRepositoryError, ApiKeyStore};
@@ -35,9 +34,7 @@ impl ApiKeyStorePostgres {
         .bind(key_id)
         .fetch_optional(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => ApiKeyRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| ApiKeyRepositoryError::StorageUnavailable)?;
 
         Ok(row)
     }
@@ -77,9 +74,7 @@ impl ApiKeyStorePostgres {
         .bind(row.revoked_at)
         .fetch_one(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => ApiKeyRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| ApiKeyRepositoryError::StorageUnavailable)?;
 
         Ok(stored)
     }
@@ -115,9 +110,7 @@ impl ApiKeyStorePostgres {
         .bind(row.revoked_at)
         .fetch_optional(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => ApiKeyRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| ApiKeyRepositoryError::StorageUnavailable)?;
 
         match stored {
             Some(row) => Ok(row),
@@ -133,9 +126,7 @@ impl ApiKeyStorePostgres {
             .bind(key_id)
             .execute(&mut *conn)
             .await
-            .map_err(|e| match DatabaseError::Query(e.to_string()) {
-                _ => ApiKeyRepositoryError::StorageUnavailable,
-            })?;
+            .map_err(|_| ApiKeyRepositoryError::StorageUnavailable)?;
 
         if result.rows_affected() == 0 {
             return Err(ApiKeyRepositoryError::NotFound);
@@ -165,9 +156,7 @@ impl ApiKeyStorePostgres {
         .bind(client_id)
         .fetch_optional(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => ApiKeyRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| ApiKeyRepositoryError::StorageUnavailable)?;
 
         Ok(row)
     }

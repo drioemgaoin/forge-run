@@ -1,4 +1,3 @@
-use crate::infrastructure::db::database::DatabaseError;
 use crate::infrastructure::db::dto::ReportRow;
 use crate::infrastructure::db::postgres::PostgresDatabase;
 use crate::infrastructure::db::stores::report_store::{ReportRepositoryError, ReportStore};
@@ -35,9 +34,7 @@ impl ReportStorePostgres {
         .bind(job_id)
         .fetch_optional(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => ReportRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| ReportRepositoryError::StorageUnavailable)?;
 
         Ok(row)
     }
@@ -82,9 +79,7 @@ impl ReportStorePostgres {
         .bind(row.created_at)
         .fetch_one(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => ReportRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| ReportRepositoryError::StorageUnavailable)?;
 
         Ok(stored)
     }
@@ -120,9 +115,7 @@ impl ReportStorePostgres {
         .bind(row.created_at)
         .fetch_optional(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => ReportRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| ReportRepositoryError::StorageUnavailable)?;
 
         match stored {
             Some(row) => Ok(row),
@@ -138,9 +131,7 @@ impl ReportStorePostgres {
             .bind(job_id)
             .execute(&mut *conn)
             .await
-            .map_err(|e| match DatabaseError::Query(e.to_string()) {
-                _ => ReportRepositoryError::StorageUnavailable,
-            })?;
+            .map_err(|_| ReportRepositoryError::StorageUnavailable)?;
 
         if result.rows_affected() == 0 {
             return Err(ReportRepositoryError::NotFound);
@@ -231,10 +222,10 @@ mod tests {
     use crate::domain::entities::job::Job;
     use crate::domain::value_objects::ids::{ClientId, JobId};
     use crate::infrastructure::db::dto::{JobRow, ReportRow};
-    use crate::infrastructure::db::postgres::job_store_postgres::JobStorePostgres;
     use crate::infrastructure::db::postgres::PostgresDatabase;
-    use crate::infrastructure::db::stores::report_store::{ReportRepositoryError, ReportStore};
+    use crate::infrastructure::db::postgres::job_store_postgres::JobStorePostgres;
     use crate::infrastructure::db::stores::job_store::JobStore;
+    use crate::infrastructure::db::stores::report_store::{ReportRepositoryError, ReportStore};
     use time::OffsetDateTime;
 
     fn test_db_url() -> Option<String> {
@@ -278,8 +269,12 @@ mod tests {
 
     #[tokio::test]
     async fn given_new_report_when_insert_should_return_stored_row() {
-        let Some(store) = setup_store().await else { return; };
-        let Some(job_id) = create_job_id().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
+        let Some(job_id) = create_job_id().await else {
+            return;
+        };
         let row = sample_report_row(job_id);
 
         let stored = store.insert(&row).await.unwrap();
@@ -290,8 +285,12 @@ mod tests {
 
     #[tokio::test]
     async fn given_existing_report_when_get_should_return_row() {
-        let Some(store) = setup_store().await else { return; };
-        let Some(job_id) = create_job_id().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
+        let Some(job_id) = create_job_id().await else {
+            return;
+        };
         let row = sample_report_row(job_id);
         let stored = store.insert(&row).await.unwrap();
 
@@ -303,7 +302,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_missing_report_when_get_should_return_none() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
 
         let fetched = store.get(uuid::Uuid::new_v4()).await.unwrap();
 
@@ -312,8 +313,12 @@ mod tests {
 
     #[tokio::test]
     async fn given_existing_report_when_update_should_return_stored_row() {
-        let Some(store) = setup_store().await else { return; };
-        let Some(job_id) = create_job_id().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
+        let Some(job_id) = create_job_id().await else {
+            return;
+        };
         let mut row = sample_report_row(job_id);
         let stored = store.insert(&row).await.unwrap();
         row.outcome = "failed".to_string();
@@ -328,7 +333,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_missing_report_when_update_should_return_not_found() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
         let row = sample_report_row(JobId::new());
 
         let err = store.update(&row).await.unwrap_err();
@@ -338,8 +345,12 @@ mod tests {
 
     #[tokio::test]
     async fn given_existing_report_when_delete_should_remove_row() {
-        let Some(store) = setup_store().await else { return; };
-        let Some(job_id) = create_job_id().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
+        let Some(job_id) = create_job_id().await else {
+            return;
+        };
         let row = sample_report_row(job_id);
         let stored = store.insert(&row).await.unwrap();
 
@@ -351,7 +362,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_missing_report_when_delete_should_return_not_found() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
 
         let err = store.delete(uuid::Uuid::new_v4()).await.unwrap_err();
 

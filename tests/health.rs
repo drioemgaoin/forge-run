@@ -1,10 +1,10 @@
+use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use forge_run::config::Settings;
+use forge_run::infrastructure::db::database::{Database, DatabaseError};
 use forge_run::interface::http;
 use forge_run::interface::http::state::AppState;
-use forge_run::infrastructure::db::database::{Database, DatabaseError};
-use forge_run::config::Settings;
-use async_trait::async_trait;
 use tower::util::ServiceExt;
 
 struct DummyDb;

@@ -223,10 +223,7 @@ mod tests {
             lifecycle: DummyLifecycle,
         };
 
-        let result = usecase
-            .execute(Timestamp::now_utc(), 10)
-            .await
-            .unwrap();
+        let result = usecase.execute(Timestamp::now_utc(), 10).await.unwrap();
 
         assert_eq!(result.jobs.len(), 1);
         assert_eq!(result.events.len(), 1);

@@ -127,7 +127,12 @@ mod tests {
             _job_id: uuid::Uuid,
             _event_name: &str,
         ) -> Result<Option<EventRow>, EventRepositoryError> {
-            Ok(self.get_by_job_result.lock().unwrap().clone().unwrap_or(None))
+            Ok(self
+                .get_by_job_result
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or(None))
         }
 
         async fn list_by_job_id(

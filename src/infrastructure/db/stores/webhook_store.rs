@@ -19,7 +19,10 @@ impl From<DatabaseError> for WebhookRepositoryError {
 #[async_trait]
 pub trait WebhookStore: Send + Sync {
     /// Fetch a webhook by its ID. Returns `None` if it doesn't exist.
-    async fn get(&self, webhook_id: uuid::Uuid) -> Result<Option<WebhookRow>, WebhookRepositoryError>;
+    async fn get(
+        &self,
+        webhook_id: uuid::Uuid,
+    ) -> Result<Option<WebhookRow>, WebhookRepositoryError>;
     /// Create a webhook and return exactly what was stored in the database.
     async fn insert(&self, row: &WebhookRow) -> Result<WebhookRow, WebhookRepositoryError>;
     /// Delete a webhook by its ID. Returns an error if it doesn't exist.

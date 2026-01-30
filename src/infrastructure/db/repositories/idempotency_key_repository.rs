@@ -84,8 +84,7 @@ mod tests {
             client_id: uuid::Uuid,
             idempotency_key: &str,
         ) -> Result<Option<IdempotencyKeyRow>, IdempotencyKeyRepositoryError> {
-            *self.deleted.lock().unwrap() =
-                Some((client_id, idempotency_key.to_string()));
+            *self.deleted.lock().unwrap() = Some((client_id, idempotency_key.to_string()));
             Ok(self.get_result.lock().unwrap().clone().unwrap_or(None))
         }
 
@@ -102,8 +101,7 @@ mod tests {
             client_id: uuid::Uuid,
             idempotency_key: &str,
         ) -> Result<(), IdempotencyKeyRepositoryError> {
-            *self.deleted.lock().unwrap() =
-                Some((client_id, idempotency_key.to_string()));
+            *self.deleted.lock().unwrap() = Some((client_id, idempotency_key.to_string()));
             Ok(())
         }
 

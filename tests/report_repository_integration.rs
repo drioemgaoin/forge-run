@@ -3,9 +3,9 @@ use forge_run::domain::entities::report::Report;
 use forge_run::domain::value_objects::ids::{ClientId, JobId};
 use forge_run::domain::value_objects::timestamps::Timestamp;
 use forge_run::infrastructure::db::dto::JobRow;
+use forge_run::infrastructure::db::postgres::PostgresDatabase;
 use forge_run::infrastructure::db::postgres::job_store_postgres::JobStorePostgres;
 use forge_run::infrastructure::db::postgres::report_store_postgres::ReportStorePostgres;
-use forge_run::infrastructure::db::postgres::PostgresDatabase;
 use forge_run::infrastructure::db::repositories::report_repository::ReportRepository;
 use forge_run::infrastructure::db::stores::job_store::JobStore;
 use std::sync::Arc;
@@ -52,8 +52,12 @@ fn sample_report(job_id: JobId) -> Report {
 
 #[tokio::test]
 async fn given_report_when_insert_should_return_stored_report() {
-    let Some(repo) = setup_repo().await else { return; };
-    let Some(job_id) = create_job_id().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
+    let Some(job_id) = create_job_id().await else {
+        return;
+    };
     let report = sample_report(job_id);
 
     let stored = repo.insert(&report).await.unwrap();
@@ -65,8 +69,12 @@ async fn given_report_when_insert_should_return_stored_report() {
 
 #[tokio::test]
 async fn given_existing_report_when_get_should_return_report() {
-    let Some(repo) = setup_repo().await else { return; };
-    let Some(job_id) = create_job_id().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
+    let Some(job_id) = create_job_id().await else {
+        return;
+    };
     let report = sample_report(job_id);
     let stored = repo.insert(&report).await.unwrap();
 
@@ -79,8 +87,12 @@ async fn given_existing_report_when_get_should_return_report() {
 
 #[tokio::test]
 async fn given_existing_report_when_update_should_return_updated_report() {
-    let Some(repo) = setup_repo().await else { return; };
-    let Some(job_id) = create_job_id().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
+    let Some(job_id) = create_job_id().await else {
+        return;
+    };
     let mut report = sample_report(job_id);
     let stored = repo.insert(&report).await.unwrap();
     report.job_id = stored.job_id;
@@ -96,7 +108,9 @@ async fn given_existing_report_when_update_should_return_updated_report() {
 
 #[tokio::test]
 async fn given_missing_report_when_get_should_return_none() {
-    let Some(repo) = setup_repo().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
 
     let fetched = repo.get(JobId::new()).await.unwrap();
 

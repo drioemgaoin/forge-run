@@ -4,9 +4,9 @@ use forge_run::domain::entities::job::JobState;
 use forge_run::domain::value_objects::ids::{EventId, JobId};
 use forge_run::domain::value_objects::timestamps::Timestamp;
 use forge_run::infrastructure::db::dto::JobRow;
+use forge_run::infrastructure::db::postgres::PostgresDatabase;
 use forge_run::infrastructure::db::postgres::event_store_postgres::EventStorePostgres;
 use forge_run::infrastructure::db::postgres::job_store_postgres::JobStorePostgres;
-use forge_run::infrastructure::db::postgres::PostgresDatabase;
 use forge_run::infrastructure::db::repositories::event_repository::EventRepository;
 use forge_run::infrastructure::db::stores::job_store::JobStore;
 use std::sync::Arc;
@@ -52,8 +52,12 @@ fn sample_event(job_id: JobId) -> Event {
 
 #[tokio::test]
 async fn given_event_when_insert_should_return_stored_event() {
-    let Some(repo) = setup_repo().await else { return; };
-    let Some(job_id) = create_job_id().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
+    let Some(job_id) = create_job_id().await else {
+        return;
+    };
     let event = sample_event(job_id);
 
     let stored = repo.insert(&event).await.unwrap();
@@ -66,8 +70,12 @@ async fn given_event_when_insert_should_return_stored_event() {
 
 #[tokio::test]
 async fn given_existing_event_when_get_should_return_event() {
-    let Some(repo) = setup_repo().await else { return; };
-    let Some(job_id) = create_job_id().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
+    let Some(job_id) = create_job_id().await else {
+        return;
+    };
     let event = sample_event(job_id);
     let stored = repo.insert(&event).await.unwrap();
 
@@ -80,8 +88,12 @@ async fn given_existing_event_when_get_should_return_event() {
 
 #[tokio::test]
 async fn given_existing_event_when_update_should_return_updated_event() {
-    let Some(repo) = setup_repo().await else { return; };
-    let Some(job_id) = create_job_id().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
+    let Some(job_id) = create_job_id().await else {
+        return;
+    };
     let mut event = sample_event(job_id);
     let stored = repo.insert(&event).await.unwrap();
     event.id = stored.id;
@@ -100,7 +112,9 @@ async fn given_existing_event_when_update_should_return_updated_event() {
 
 #[tokio::test]
 async fn given_missing_event_when_get_should_return_none() {
-    let Some(repo) = setup_repo().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
 
     let fetched = repo.get(EventId::new()).await.unwrap();
 

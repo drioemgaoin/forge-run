@@ -1,4 +1,3 @@
-use crate::infrastructure::db::database::DatabaseError;
 use crate::infrastructure::db::dto::IdempotencyKeyRow;
 use crate::infrastructure::db::postgres::PostgresDatabase;
 use crate::infrastructure::db::stores::idempotency_key_store::{
@@ -36,9 +35,7 @@ impl IdempotencyKeyStorePostgres {
         .bind(idempotency_key)
         .fetch_optional(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => IdempotencyKeyRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| IdempotencyKeyRepositoryError::StorageUnavailable)?;
 
         Ok(row)
     }
@@ -69,9 +66,7 @@ impl IdempotencyKeyStorePostgres {
         .bind(row.created_at)
         .fetch_one(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => IdempotencyKeyRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| IdempotencyKeyRepositoryError::StorageUnavailable)?;
 
         Ok(stored)
     }
@@ -88,9 +83,7 @@ impl IdempotencyKeyStorePostgres {
         .bind(idempotency_key)
         .execute(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => IdempotencyKeyRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| IdempotencyKeyRepositoryError::StorageUnavailable)?;
 
         if result.rows_affected() == 0 {
             return Err(IdempotencyKeyRepositoryError::NotFound);

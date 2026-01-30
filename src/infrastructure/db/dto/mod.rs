@@ -1,8 +1,8 @@
 pub mod api_key;
-pub mod event;
 pub mod client;
-pub mod job;
+pub mod event;
 pub mod idempotency_key;
+pub mod job;
 pub mod report;
 pub mod webhook;
 

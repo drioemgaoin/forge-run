@@ -1,4 +1,3 @@
-use crate::infrastructure::db::database::DatabaseError;
 use crate::infrastructure::db::dto::JobRow;
 use crate::infrastructure::db::postgres::PostgresDatabase;
 use crate::infrastructure::db::stores::job_store::{JobRepositoryError, JobStore};
@@ -41,9 +40,7 @@ impl JobStorePostgres {
         .bind(job_id)
         .fetch_optional(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => JobRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| JobRepositoryError::StorageUnavailable)?;
 
         Ok(row)
     }
@@ -98,9 +95,7 @@ impl JobStorePostgres {
         .bind(&row.work_kind)
         .fetch_one(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => JobRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| JobRepositoryError::StorageUnavailable)?;
 
         Ok(stored)
     }
@@ -141,9 +136,7 @@ impl JobStorePostgres {
         .bind(row.updated_at)
         .fetch_optional(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => JobRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| JobRepositoryError::StorageUnavailable)?;
 
         match stored {
             Some(row) => Ok(row),
@@ -159,9 +152,7 @@ impl JobStorePostgres {
             .bind(job_id)
             .execute(&mut *conn)
             .await
-            .map_err(|e| match DatabaseError::Query(e.to_string()) {
-                _ => JobRepositoryError::StorageUnavailable,
-            })?;
+            .map_err(|_| JobRepositoryError::StorageUnavailable)?;
 
         if result.rows_affected() == 0 {
             return Err(JobRepositoryError::NotFound);
@@ -201,9 +192,7 @@ impl JobStorePostgres {
         .bind(limit as i64)
         .fetch_all(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => JobRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| JobRepositoryError::StorageUnavailable)?;
 
         Ok(rows)
     }
@@ -240,9 +229,7 @@ impl JobStorePostgres {
         )
         .fetch_optional(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => JobRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| JobRepositoryError::StorageUnavailable)?;
 
         Ok(row)
     }
@@ -279,9 +266,7 @@ impl JobStorePostgres {
         )
         .fetch_optional(&mut **tx)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => JobRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| JobRepositoryError::StorageUnavailable)?;
 
         Ok(row)
     }
@@ -332,9 +317,7 @@ impl JobStore for JobStorePostgres {
         limit: u32,
     ) -> Result<Vec<JobRow>, JobRepositoryError> {
         self.db
-            .with_conn(move |conn| {
-                Box::pin(Self::list_due_deferred_impl_conn(conn, now, limit))
-            })
+            .with_conn(move |conn| Box::pin(Self::list_due_deferred_impl_conn(conn, now, limit)))
             .await
     }
 
@@ -395,8 +378,8 @@ mod tests {
     use super::JobStorePostgres;
     use crate::infrastructure::db::dto::JobRow;
     use crate::infrastructure::db::postgres::PostgresDatabase;
-    use crate::infrastructure::db::stores::job_store::JobStore;
     use crate::infrastructure::db::stores::job_store::JobRepositoryError;
+    use crate::infrastructure::db::stores::job_store::JobStore;
     use time::OffsetDateTime;
 
     fn test_db_url() -> Option<String> {
@@ -429,7 +412,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_new_job_when_insert_should_return_stored_row() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
         let row = sample_job_row(uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
 
         let stored = store.insert(&row).await.unwrap();
@@ -442,7 +427,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_existing_job_when_get_should_return_row() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
         let row = sample_job_row(uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
         let stored = store.insert(&row).await.unwrap();
 
@@ -454,7 +441,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_missing_job_when_get_should_return_none() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
 
         let fetched = store.get(uuid::Uuid::new_v4()).await.unwrap();
 
@@ -463,7 +452,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_existing_job_when_update_should_return_stored_row() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
         let mut row = sample_job_row(uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
         let stored = store.insert(&row).await.unwrap();
         row.state = "queued".to_string();
@@ -479,7 +470,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_missing_job_when_update_should_return_not_found() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
         let row = sample_job_row(uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
 
         let err = store.update(&row).await.unwrap_err();
@@ -489,7 +482,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_existing_job_when_delete_should_remove_row() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
         let row = sample_job_row(uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
         let stored = store.insert(&row).await.unwrap();
 
@@ -501,7 +496,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_missing_job_when_delete_should_return_not_found() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
 
         let err = store.delete(uuid::Uuid::new_v4()).await.unwrap_err();
 
@@ -510,7 +507,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_deferred_job_due_when_list_due_deferred_should_return_row() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
         let mut row = sample_job_row(uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
         row.job_type = "deferred".to_string();
         row.executed_at = Some(OffsetDateTime::now_utc() - time::Duration::seconds(1));
@@ -526,7 +525,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_queued_jobs_when_claim_next_queued_should_assign_one() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
         let mut row = sample_job_row(uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
         row.state = "queued".to_string();
         let stored = store.insert(&row).await.unwrap();

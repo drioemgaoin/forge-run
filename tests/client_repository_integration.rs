@@ -1,7 +1,7 @@
 use forge_run::domain::entities::client::Client;
 use forge_run::domain::value_objects::ids::ClientId;
-use forge_run::infrastructure::db::postgres::client_store_postgres::ClientStorePostgres;
 use forge_run::infrastructure::db::postgres::PostgresDatabase;
+use forge_run::infrastructure::db::postgres::client_store_postgres::ClientStorePostgres;
 use forge_run::infrastructure::db::repositories::client_repository::ClientRepository;
 use std::sync::Arc;
 
@@ -22,7 +22,9 @@ fn sample_client() -> Client {
 
 #[tokio::test]
 async fn given_client_when_insert_should_return_stored_client() {
-    let Some(repo) = setup_repo().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
     let client = sample_client();
 
     let stored = repo.insert(&client).await.unwrap();
@@ -33,7 +35,9 @@ async fn given_client_when_insert_should_return_stored_client() {
 
 #[tokio::test]
 async fn given_existing_client_when_get_should_return_client() {
-    let Some(repo) = setup_repo().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
     let client = sample_client();
     let stored = repo.insert(&client).await.unwrap();
 
@@ -46,7 +50,9 @@ async fn given_existing_client_when_get_should_return_client() {
 
 #[tokio::test]
 async fn given_existing_client_when_update_should_return_updated_client() {
-    let Some(repo) = setup_repo().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
     let mut client = sample_client();
     let stored = repo.insert(&client).await.unwrap();
     client.id = stored.id;
@@ -59,7 +65,9 @@ async fn given_existing_client_when_update_should_return_updated_client() {
 
 #[tokio::test]
 async fn given_missing_client_when_get_should_return_none() {
-    let Some(repo) = setup_repo().await else { return; };
+    let Some(repo) = setup_repo().await else {
+        return;
+    };
 
     let fetched = repo.get(ClientId::new()).await.unwrap();
 

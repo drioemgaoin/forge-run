@@ -47,7 +47,8 @@ impl<S: ApiKeyStore + Send + Sync + Clone + 'static> CreateApiKeyUseCase<S> {
                     if let Some(existing) = store
                         .get_active_by_client_id_tx(tx, client_id)
                         .await
-                        .map_err(|e| DatabaseError::Query(format!("{e:?}")))? {
+                        .map_err(|e| DatabaseError::Query(format!("{e:?}")))?
+                    {
                         if !rotate {
                             // Step 3: Return existing key metadata when rotate is false.
                             return Ok(ApiKeyResult {
@@ -104,9 +105,9 @@ mod tests {
     use crate::domain::value_objects::ids::ClientId;
     use crate::domain::value_objects::timestamps::Timestamp;
     use crate::infrastructure::db::dto::ClientRow;
+    use crate::infrastructure::db::postgres::PostgresDatabase;
     use crate::infrastructure::db::postgres::api_key_store_postgres::ApiKeyStorePostgres;
     use crate::infrastructure::db::postgres::client_store_postgres::ClientStorePostgres;
-    use crate::infrastructure::db::postgres::PostgresDatabase;
     use crate::infrastructure::db::stores::api_key_store::ApiKeyStore;
     use crate::infrastructure::db::stores::client_store::ClientStore;
     use std::sync::Arc;
@@ -117,7 +118,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_no_active_key_when_execute_should_create_new_key() {
-        let Some(url) = test_db_url() else { return; };
+        let Some(url) = test_db_url() else {
+            return;
+        };
         let db = Arc::new(PostgresDatabase::connect(&url).await.unwrap());
         let api_store = ApiKeyStorePostgres::new(db.clone());
         let client_store = ClientStorePostgres::new(db.clone());
@@ -146,7 +149,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_existing_key_when_rotate_false_should_return_existing_metadata() {
-        let Some(url) = test_db_url() else { return; };
+        let Some(url) = test_db_url() else {
+            return;
+        };
         let db = Arc::new(PostgresDatabase::connect(&url).await.unwrap());
         let api_store = ApiKeyStorePostgres::new(db.clone());
         let client_store = ClientStorePostgres::new(db.clone());

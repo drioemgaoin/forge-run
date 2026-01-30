@@ -1,10 +1,12 @@
+use forge_run::domain::entities::client::Client;
 use forge_run::domain::entities::event::Event;
 use forge_run::domain::entities::job::{Job, JobState};
-use forge_run::domain::entities::client::Client;
 use forge_run::domain::value_objects::ids::{ClientId, EventId, JobId};
 use forge_run::domain::value_objects::timestamps::Timestamp;
 use forge_run::infrastructure::db::database::DatabaseError;
-use forge_run::infrastructure::db::dto::{ApiKeyRow, ClientRow, EventRow, IdempotencyKeyRow, JobRow};
+use forge_run::infrastructure::db::dto::{
+    ApiKeyRow, ClientRow, EventRow, IdempotencyKeyRow, JobRow,
+};
 use forge_run::infrastructure::db::postgres::PostgresDatabase;
 use forge_run::infrastructure::db::postgres::api_key_store_postgres::ApiKeyStorePostgres;
 use forge_run::infrastructure::db::postgres::client_store_postgres::ClientStorePostgres;

@@ -21,7 +21,10 @@ impl<S: ApiKeyStore> ApiKeyRepository<S> {
     }
 
     /// Fetch an API key by its ID. Returns `None` if it doesn't exist.
-    pub async fn get(&self, key_id: uuid::Uuid) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
+    pub async fn get(
+        &self,
+        key_id: uuid::Uuid,
+    ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
         self.store
             .get(key_id)
             .await

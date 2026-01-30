@@ -1,4 +1,3 @@
-use crate::infrastructure::db::database::DatabaseError;
 use crate::infrastructure::db::dto::ClientRow;
 use crate::infrastructure::db::postgres::PostgresDatabase;
 use crate::infrastructure::db::stores::client_store::{ClientRepositoryError, ClientStore};
@@ -30,9 +29,7 @@ impl ClientStorePostgres {
         .bind(client_id)
         .fetch_optional(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => ClientRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| ClientRepositoryError::StorageUnavailable)?;
 
         Ok(row)
     }
@@ -57,9 +54,7 @@ impl ClientStorePostgres {
         .bind(row.created_at)
         .fetch_one(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => ClientRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| ClientRepositoryError::StorageUnavailable)?;
 
         Ok(stored)
     }
@@ -80,9 +75,7 @@ impl ClientStorePostgres {
         .bind(row.created_at)
         .fetch_optional(&mut *conn)
         .await
-        .map_err(|e| match DatabaseError::Query(e.to_string()) {
-            _ => ClientRepositoryError::StorageUnavailable,
-        })?;
+        .map_err(|_| ClientRepositoryError::StorageUnavailable)?;
 
         match stored {
             Some(row) => Ok(row),
@@ -98,9 +91,7 @@ impl ClientStorePostgres {
             .bind(client_id)
             .execute(&mut *conn)
             .await
-            .map_err(|e| match DatabaseError::Query(e.to_string()) {
-                _ => ClientRepositoryError::StorageUnavailable,
-            })?;
+            .map_err(|_| ClientRepositoryError::StorageUnavailable)?;
 
         if result.rows_affected() == 0 {
             return Err(ClientRepositoryError::NotFound);
@@ -175,7 +166,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_new_client_when_insert_should_return_stored_row() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
         let row = sample_client_row();
 
         let stored = store.insert(&row).await.unwrap();
@@ -185,7 +178,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_existing_client_when_get_should_return_row() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
         let row = sample_client_row();
         let stored = store.insert(&row).await.unwrap();
 
@@ -197,7 +192,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_missing_client_when_get_should_return_none() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
 
         let fetched = store.get(uuid::Uuid::new_v4()).await.unwrap();
 
@@ -206,7 +203,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_existing_client_when_update_should_return_stored_row() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
         let mut row = sample_client_row();
         let stored = store.insert(&row).await.unwrap();
         row.id = stored.id;
@@ -218,7 +217,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_missing_client_when_update_should_return_not_found() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
         let row = sample_client_row();
 
         let err = store.update(&row).await.unwrap_err();
@@ -228,7 +229,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_existing_client_when_delete_should_remove_row() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
         let row = sample_client_row();
         let stored = store.insert(&row).await.unwrap();
 
@@ -240,7 +243,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_missing_client_when_delete_should_return_not_found() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
 
         let err = store.delete(uuid::Uuid::new_v4()).await.unwrap_err();
 

@@ -48,7 +48,8 @@ where
                     let Some(job_row) = job_store
                         .claim_next_queued_tx(tx)
                         .await
-                        .map_err(|e| DatabaseError::Query(format!("{e:?}")))? else {
+                        .map_err(|e| DatabaseError::Query(format!("{e:?}")))?
+                    else {
                         return Ok(None);
                     };
 
@@ -84,14 +85,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::ClaimNextJobUseCase;
-    use crate::domain::entities::job::{Job, JobState};
     use crate::domain::entities::event::EventName;
+    use crate::domain::entities::job::{Job, JobState};
     use crate::domain::value_objects::ids::{ClientId, JobId};
     use crate::domain::value_objects::timestamps::Timestamp;
     use crate::infrastructure::db::dto::JobRow;
+    use crate::infrastructure::db::postgres::PostgresDatabase;
     use crate::infrastructure::db::postgres::event_store_postgres::EventStorePostgres;
     use crate::infrastructure::db::postgres::job_store_postgres::JobStorePostgres;
-    use crate::infrastructure::db::postgres::PostgresDatabase;
     use crate::infrastructure::db::stores::event_store::EventStore;
     use crate::infrastructure::db::stores::job_store::JobStore;
     use std::sync::Arc;
@@ -102,7 +103,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_queued_job_when_execute_should_assign_and_emit_event() {
-        let Some(url) = test_db_url() else { return; };
+        let Some(url) = test_db_url() else {
+            return;
+        };
         let db = Arc::new(PostgresDatabase::connect(&url).await.unwrap());
         let job_store = JobStorePostgres::new(db.clone());
         let event_store = EventStorePostgres::new(db.clone());

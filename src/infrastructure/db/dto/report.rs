@@ -63,7 +63,7 @@ fn outcome_from_str(value: &str) -> JobOutcome {
 
 #[cfg(test)]
 mod tests {
-    use super::{outcome_from_str, ReportRow};
+    use super::{ReportRow, outcome_from_str};
     use crate::domain::entities::job::JobOutcome;
     use crate::domain::entities::report::Report;
     use crate::domain::value_objects::ids::JobId;
