@@ -1,0 +1,9 @@
+[server]
+host = "127.0.0.1"
+port = 8080
+
+[db]
+url = "postgres://postgres:postgres@localhost:5432/forge_run"
+
+[redis]
+url = "redis://127.0.0.1/"

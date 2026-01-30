@@ -421,6 +421,7 @@ Forbidden:
 - Workers must heartbeat while RUNNING.
 - Each worker has a max concurrency of 1 (configurable).
 - Queue is persisted to storage; in-memory queues are not allowed.
+- Storage backend: PostgreSQL.
 - Lease timeout: 30s; heartbeat interval: 5s.
 
 ## 13. What must never happen?

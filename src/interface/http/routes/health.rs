@@ -6,7 +6,10 @@ struct HealthResponse {
     status: &'static str,
 }
 
-pub fn router() -> Router {
+pub fn router<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
     Router::new().route("/health", get(health))
 }
 
@@ -23,7 +26,7 @@ mod tests {
 
     #[tokio::test]
     async fn health_returns_ok() {
-        let response = router()
+        let response = router::<()>()
             .oneshot(
                 Request::builder()
                     .uri("/health")

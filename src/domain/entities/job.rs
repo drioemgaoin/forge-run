@@ -8,6 +8,15 @@ pub enum JobType {
     Deferred,
 }
 
+impl JobType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            JobType::Instant => "instant",
+            JobType::Deferred => "deferred",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum JobState {
     Created,
@@ -19,6 +28,20 @@ pub enum JobState {
     Canceled,
 }
 
+impl JobState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            JobState::Created => "created",
+            JobState::Queued => "queued",
+            JobState::Assigned => "assigned",
+            JobState::Running => "running",
+            JobState::Succeeded => "succeeded",
+            JobState::Failed => "failed",
+            JobState::Canceled => "canceled",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum JobOutcome {
     Success,
@@ -26,6 +49,15 @@ pub enum JobOutcome {
     Canceled,
 }
 
+impl JobOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            JobOutcome::Success => "success",
+            JobOutcome::Failed => "failed",
+            JobOutcome::Canceled => "canceled",
+        }
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JobValidationError {
     MissingExecutionAt,
@@ -36,6 +68,7 @@ pub enum JobValidationError {
     InvalidCallbackUrl,
 }
 
+#[derive(Debug, Clone)]
 pub struct Job {
     pub id: JobId,
     pub client_id: ClientId,
