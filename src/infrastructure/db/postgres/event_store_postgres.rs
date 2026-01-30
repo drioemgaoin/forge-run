@@ -213,19 +213,40 @@ impl EventStore for EventStorePostgres {
 #[cfg(test)]
 mod tests {
     use super::EventStorePostgres;
+    use crate::domain::entities::job::Job;
+    use crate::domain::value_objects::ids::{ClientId, JobId};
     use crate::infrastructure::db::dto::EventRow;
+    use crate::infrastructure::db::dto::JobRow;
     use crate::infrastructure::db::postgres::PostgresDatabase;
+    use crate::infrastructure::db::postgres::job_store_postgres::JobStorePostgres;
     use crate::infrastructure::db::stores::event_store::{EventRepositoryError, EventStore};
+    use crate::infrastructure::db::stores::job_store::JobStore;
     use time::OffsetDateTime;
 
     fn test_db_url() -> Option<String> {
         std::env::var("DATABASE_URL").ok()
     }
 
-    fn sample_event_row(id: uuid::Uuid, job_id: uuid::Uuid) -> EventRow {
+    async fn create_job_id() -> Option<JobId> {
+        let url = test_db_url()?;
+        let db = PostgresDatabase::connect(&url).await.ok()?;
+        let job_store = JobStorePostgres::new(db);
+        let job = Job::new_instant(
+            JobId::new(),
+            ClientId::new(),
+            None,
+            Some("SUCCESS_FAST".to_string()),
+        )
+        .unwrap();
+        let row = JobRow::from_job(&job);
+        let stored = job_store.insert(&row).await.ok()?;
+        Some(JobId(stored.id))
+    }
+
+    fn sample_event_row(id: uuid::Uuid, job_id: JobId) -> EventRow {
         EventRow {
             id,
-            job_id,
+            job_id: job_id.0,
             event_name: "job_created".to_string(),
             prev_state: "created".to_string(),
             next_state: "created".to_string(),
@@ -241,8 +262,13 @@ mod tests {
 
     #[tokio::test]
     async fn given_new_event_when_insert_should_return_stored_row() {
-        let Some(store) = setup_store().await else { return; };
-        let row = sample_event_row(uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+        let Some(store) = setup_store().await else {
+            return;
+        };
+        let Some(job_id) = create_job_id().await else {
+            return;
+        };
+        let row = sample_event_row(uuid::Uuid::new_v4(), job_id);
 
         let stored = store.insert(&row).await.unwrap();
 
@@ -253,8 +279,13 @@ mod tests {
 
     #[tokio::test]
     async fn given_existing_event_when_get_should_return_row() {
-        let Some(store) = setup_store().await else { return; };
-        let row = sample_event_row(uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+        let Some(store) = setup_store().await else {
+            return;
+        };
+        let Some(job_id) = create_job_id().await else {
+            return;
+        };
+        let row = sample_event_row(uuid::Uuid::new_v4(), job_id);
         let stored = store.insert(&row).await.unwrap();
 
         let fetched = store.get(stored.id).await.unwrap();
@@ -265,7 +296,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_missing_event_when_get_should_return_none() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
 
         let fetched = store.get(uuid::Uuid::new_v4()).await.unwrap();
 
@@ -274,8 +307,13 @@ mod tests {
 
     #[tokio::test]
     async fn given_existing_event_when_update_should_return_stored_row() {
-        let Some(store) = setup_store().await else { return; };
-        let mut row = sample_event_row(uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+        let Some(store) = setup_store().await else {
+            return;
+        };
+        let Some(job_id) = create_job_id().await else {
+            return;
+        };
+        let mut row = sample_event_row(uuid::Uuid::new_v4(), job_id);
         let stored = store.insert(&row).await.unwrap();
         row.event_name = "job_queued".to_string();
         row.prev_state = "created".to_string();
@@ -291,8 +329,13 @@ mod tests {
 
     #[tokio::test]
     async fn given_missing_event_when_update_should_return_not_found() {
-        let Some(store) = setup_store().await else { return; };
-        let row = sample_event_row(uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+        let Some(store) = setup_store().await else {
+            return;
+        };
+        let Some(job_id) = create_job_id().await else {
+            return;
+        };
+        let row = sample_event_row(uuid::Uuid::new_v4(), job_id);
 
         let err = store.update(&row).await.unwrap_err();
 
@@ -301,8 +344,13 @@ mod tests {
 
     #[tokio::test]
     async fn given_existing_event_when_delete_should_remove_row() {
-        let Some(store) = setup_store().await else { return; };
-        let row = sample_event_row(uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+        let Some(store) = setup_store().await else {
+            return;
+        };
+        let Some(job_id) = create_job_id().await else {
+            return;
+        };
+        let row = sample_event_row(uuid::Uuid::new_v4(), job_id);
         let stored = store.insert(&row).await.unwrap();
 
         store.delete(stored.id).await.unwrap();
@@ -313,7 +361,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_missing_event_when_delete_should_return_not_found() {
-        let Some(store) = setup_store().await else { return; };
+        let Some(store) = setup_store().await else {
+            return;
+        };
 
         let err = store.delete(uuid::Uuid::new_v4()).await.unwrap_err();
 
