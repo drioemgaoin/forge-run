@@ -8,3 +8,13 @@ pub fn generate_api_key() -> (String, String, String) {
     let hash = hex::encode(hasher.finalize());
     (raw, prefix, hash)
 }
+
+pub fn api_key_prefix(raw: &str) -> String {
+    raw.chars().take(8).collect()
+}
+
+pub fn api_key_hash(raw: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(raw.as_bytes());
+    hex::encode(hasher.finalize())
+}

@@ -160,6 +160,36 @@ impl ApiKeyStorePostgres {
 
         Ok(row)
     }
+
+    async fn get_active_by_prefix_and_hash_impl_conn(
+        conn: &mut PgConnection,
+        key_prefix: &str,
+        key_hash: &str,
+    ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
+        let row = sqlx::query_as::<_, ApiKeyRow>(
+            "SELECT
+                id,
+                client_id,
+                key_hash,
+                key_prefix,
+                created_at,
+                expires_at,
+                revoked_at
+            FROM api_keys
+            WHERE key_prefix = $1
+              AND key_hash = $2
+              AND revoked_at IS NULL
+              AND (expires_at IS NULL OR expires_at > NOW())
+            LIMIT 1",
+        )
+        .bind(key_prefix)
+        .bind(key_hash)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(|_| ApiKeyRepositoryError::StorageUnavailable)?;
+
+        Ok(row)
+    }
 }
 
 #[async_trait]
@@ -212,6 +242,25 @@ impl ApiKeyStore for ApiKeyStorePostgres {
             .await
     }
 
+    /// Fetch an active API key by prefix+hash (used for auth).
+    async fn get_active_by_prefix_and_hash(
+        &self,
+        key_prefix: &str,
+        key_hash: &str,
+    ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
+        let prefix = key_prefix.to_string();
+        let hash = key_hash.to_string();
+        self.db
+            .with_conn(move |conn| {
+                let prefix = prefix;
+                let hash = hash;
+                Box::pin(async move {
+                    Self::get_active_by_prefix_and_hash_impl_conn(conn, &prefix, &hash).await
+                })
+            })
+            .await
+    }
+
     /// Create an API key inside an existing transaction and return the stored row.
     async fn insert_tx(
         &self,
@@ -255,5 +304,15 @@ impl ApiKeyStore for ApiKeyStorePostgres {
         client_id: uuid::Uuid,
     ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
         Self::get_active_by_client_id_impl_conn(&mut *tx, client_id).await
+    }
+
+    /// Fetch an active API key by prefix+hash inside an existing transaction.
+    async fn get_active_by_prefix_and_hash_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        key_prefix: &str,
+        key_hash: &str,
+    ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
+        Self::get_active_by_prefix_and_hash_impl_conn(&mut *tx, key_prefix, key_hash).await
     }
 }

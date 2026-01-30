@@ -7,11 +7,13 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() {
     let settings = config::load().expect("load config");
-    let db = PostgresDatabase::connect(&settings.db.url)
-        .await
-        .expect("connect database");
+    let db = Arc::new(
+        PostgresDatabase::connect(&settings.db.url)
+            .await
+            .expect("connect database"),
+    );
     let state = AppState {
-        db: Arc::new(db),
+        db: db.clone(),
         settings: settings.clone(),
     };
     let app = http::app(state);

@@ -63,6 +63,7 @@ mod tests {
         pub deleted: Mutex<Option<uuid::Uuid>>,
         pub get_result: Mutex<Option<Option<ApiKeyRow>>>,
         pub active_result: Mutex<Option<Option<ApiKeyRow>>>,
+        pub auth_result: Mutex<Option<Option<ApiKeyRow>>>,
     }
 
     impl DummyStore {
@@ -73,6 +74,7 @@ mod tests {
                 deleted: Mutex::new(None),
                 get_result: Mutex::new(None),
                 active_result: Mutex::new(None),
+                auth_result: Mutex::new(None),
             }
         }
     }
@@ -107,6 +109,14 @@ mod tests {
             _client_id: uuid::Uuid,
         ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
             Ok(self.active_result.lock().unwrap().clone().unwrap_or(None))
+        }
+
+        async fn get_active_by_prefix_and_hash(
+            &self,
+            _key_prefix: &str,
+            _key_hash: &str,
+        ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
+            Ok(self.auth_result.lock().unwrap().clone().unwrap_or(None))
         }
 
         async fn insert_tx(
@@ -145,6 +155,15 @@ mod tests {
             &self,
             _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
             _client_id: uuid::Uuid,
+        ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
+            Err(ApiKeyRepositoryError::InvalidInput)
+        }
+
+        async fn get_active_by_prefix_and_hash_tx(
+            &self,
+            _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+            _key_prefix: &str,
+            _key_hash: &str,
         ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
             Err(ApiKeyRepositoryError::InvalidInput)
         }
