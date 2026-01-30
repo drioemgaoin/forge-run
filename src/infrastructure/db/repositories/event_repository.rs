@@ -85,6 +85,8 @@ mod tests {
     struct DummyStore {
         pub inserted: Mutex<Option<EventRow>>,
         pub get_result: Mutex<Option<Option<EventRow>>>,
+        pub get_by_job_result: Mutex<Option<Option<EventRow>>>,
+        pub list_result: Mutex<Vec<EventRow>>,
     }
 
     impl DummyStore {
@@ -92,6 +94,8 @@ mod tests {
             Self {
                 inserted: Mutex::new(None),
                 get_result: Mutex::new(None),
+                get_by_job_result: Mutex::new(None),
+                list_result: Mutex::new(Vec::new()),
             }
         }
     }
@@ -116,6 +120,21 @@ mod tests {
 
         async fn delete(&self, _event_id: uuid::Uuid) -> Result<(), EventRepositoryError> {
             Err(EventRepositoryError::InvalidInput)
+        }
+
+        async fn get_by_job_id_and_name(
+            &self,
+            _job_id: uuid::Uuid,
+            _event_name: &str,
+        ) -> Result<Option<EventRow>, EventRepositoryError> {
+            Ok(self.get_by_job_result.lock().unwrap().clone().unwrap_or(None))
+        }
+
+        async fn list_by_job_id(
+            &self,
+            _job_id: uuid::Uuid,
+        ) -> Result<Vec<EventRow>, EventRepositoryError> {
+            Ok(self.list_result.lock().unwrap().clone())
         }
 
         async fn insert_tx(
@@ -147,6 +166,23 @@ mod tests {
             _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
             _event_id: uuid::Uuid,
         ) -> Result<Option<EventRow>, EventRepositoryError> {
+            Err(EventRepositoryError::InvalidInput)
+        }
+
+        async fn get_by_job_id_and_name_tx(
+            &self,
+            _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+            _job_id: uuid::Uuid,
+            _event_name: &str,
+        ) -> Result<Option<EventRow>, EventRepositoryError> {
+            Err(EventRepositoryError::InvalidInput)
+        }
+
+        async fn list_by_job_id_tx(
+            &self,
+            _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+            _job_id: uuid::Uuid,
+        ) -> Result<Vec<EventRow>, EventRepositoryError> {
             Err(EventRepositoryError::InvalidInput)
         }
     }

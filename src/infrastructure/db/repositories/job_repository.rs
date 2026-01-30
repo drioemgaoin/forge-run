@@ -194,6 +194,13 @@ mod tests {
         ) -> Result<Option<JobRow>, JobRepositoryError> {
             Err(JobRepositoryError::InvalidInput)
         }
+
+        async fn claim_next_queued_tx(
+            &self,
+            _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        ) -> Result<Option<JobRow>, JobRepositoryError> {
+            Err(JobRepositoryError::InvalidInput)
+        }
     }
 
     fn sample_job() -> Job {

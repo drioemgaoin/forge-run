@@ -18,14 +18,14 @@ fn test_db_url() -> Option<String> {
 
 async fn setup_repo() -> Option<EventRepository<EventStorePostgres>> {
     let url = test_db_url()?;
-    let db = PostgresDatabase::connect(&url).await.ok()?;
+    let db = std::sync::Arc::new(PostgresDatabase::connect(&url).await.ok()?);
     let store = EventStorePostgres::new(db);
     Some(EventRepository::new(Arc::new(store)))
 }
 
 async fn create_job_id() -> Option<JobId> {
     let url = test_db_url()?;
-    let db = PostgresDatabase::connect(&url).await.ok()?;
+    let db = std::sync::Arc::new(PostgresDatabase::connect(&url).await.ok()?);
     let job_store = JobStorePostgres::new(db);
     let job = Job::new_instant(
         JobId::new(),

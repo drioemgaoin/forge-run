@@ -13,7 +13,7 @@ fn test_db_url() -> Option<String> {
 
 async fn setup_repo() -> Option<JobRepository<JobStorePostgres>> {
     let url = test_db_url()?;
-    let db = PostgresDatabase::connect(&url).await.ok()?;
+    let db = std::sync::Arc::new(PostgresDatabase::connect(&url).await.ok()?);
     let store = JobStorePostgres::new(db);
     Some(JobRepository::new(Arc::new(store)))
 }

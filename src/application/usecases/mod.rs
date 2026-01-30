@@ -1,4 +1,5 @@
 pub mod cancel_job;
+pub mod cleanup_retention;
 pub mod create_api_key;
 pub mod create_client;
 pub mod get_job;
@@ -7,7 +8,7 @@ pub mod register_webhook;
 pub mod renew_api_key;
 pub mod retry_job;
 pub mod revoke_api_key;
-pub mod scheduler;
+pub mod queue_due_jobs;
 pub mod submit_job;
 pub mod unregister_webhook;
-pub mod worker;
+pub mod claim_next_job;

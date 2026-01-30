@@ -60,4 +60,9 @@ pub trait JobStore: Send + Sync {
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         job_id: uuid::Uuid,
     ) -> Result<Option<JobRow>, JobRepositoryError>;
+    /// Atomically claim the next queued job inside an existing transaction.
+    async fn claim_next_queued_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Option<JobRow>, JobRepositoryError>;
 }

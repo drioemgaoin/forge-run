@@ -11,7 +11,7 @@ fn test_db_url() -> Option<String> {
 
 async fn setup_repo() -> Option<ClientRepository<ClientStorePostgres>> {
     let url = test_db_url()?;
-    let db = PostgresDatabase::connect(&url).await.ok()?;
+    let db = std::sync::Arc::new(PostgresDatabase::connect(&url).await.ok()?);
     let store = ClientStorePostgres::new(db);
     Some(ClientRepository::new(Arc::new(store)))
 }

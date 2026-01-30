@@ -38,6 +38,17 @@ pub trait EventStore: Send + Sync {
     async fn update(&self, row: &EventRow) -> Result<EventRow, EventRepositoryError>;
     /// Delete an event by its ID. Returns an error if it doesn't exist.
     async fn delete(&self, event_id: uuid::Uuid) -> Result<(), EventRepositoryError>;
+    /// Fetch the first event for a job by name. Returns `None` if it doesn't exist.
+    async fn get_by_job_id_and_name(
+        &self,
+        job_id: uuid::Uuid,
+        event_name: &str,
+    ) -> Result<Option<EventRow>, EventRepositoryError>;
+    /// List all events for a job ordered by time.
+    async fn list_by_job_id(
+        &self,
+        job_id: uuid::Uuid,
+    ) -> Result<Vec<EventRow>, EventRepositoryError>;
 
     /// Create a job inside an existing transaction and return the stored row.
     async fn insert_tx(
@@ -63,4 +74,17 @@ pub trait EventStore: Send + Sync {
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         event_id: uuid::Uuid,
     ) -> Result<Option<EventRow>, EventRepositoryError>;
+    /// Fetch the first event for a job by name inside an existing transaction.
+    async fn get_by_job_id_and_name_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        job_id: uuid::Uuid,
+        event_name: &str,
+    ) -> Result<Option<EventRow>, EventRepositoryError>;
+    /// List all events for a job ordered by time inside an existing transaction.
+    async fn list_by_job_id_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        job_id: uuid::Uuid,
+    ) -> Result<Vec<EventRow>, EventRepositoryError>;
 }

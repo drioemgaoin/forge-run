@@ -38,10 +38,11 @@ impl PostgresDatabase {
         f(&mut conn).await
     }
 
-    pub async fn with_tx<T, F, Fut>(&self, f: F) -> Result<T, DatabaseError>
+    pub async fn with_tx<T, F>(&self, f: F) -> Result<T, DatabaseError>
     where
-        F: FnOnce(&mut sqlx::Transaction<'_, sqlx::Postgres>) -> Fut,
-        Fut: Future<Output = Result<T, DatabaseError>>,
+        for<'c> F: FnOnce(
+            &'c mut sqlx::Transaction<'_, sqlx::Postgres>,
+        ) -> Pin<Box<dyn Future<Output = Result<T, DatabaseError>> + Send + 'c>>,
     {
         let mut tx = self
             .pool
@@ -121,7 +122,7 @@ mod tests {
         let db = PostgresDatabase::connect(&url).await.unwrap();
 
         let result = db
-            .with_tx(|_tx| async { Ok(1) })
+            .with_tx(|_tx| Box::pin(async { Ok(1) }))
             .await
             .unwrap();
 
@@ -134,7 +135,7 @@ mod tests {
         let db = PostgresDatabase::connect(&url).await.unwrap();
 
         let result: Result<(), DatabaseError> = db
-            .with_tx(|_tx| async { Err(DatabaseError::Query("boom".to_string())) })
+            .with_tx(|_tx| Box::pin(async { Err(DatabaseError::Query("boom".to_string())) }))
             .await;
 
         assert!(matches!(result, Err(DatabaseError::Query(_))));

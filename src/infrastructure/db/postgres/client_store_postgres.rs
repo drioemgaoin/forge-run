@@ -5,13 +5,14 @@ use crate::infrastructure::db::stores::client_store::{ClientRepositoryError, Cli
 use async_trait::async_trait;
 use sqlx::PgConnection;
 
+#[derive(Clone)]
 pub struct ClientStorePostgres {
-    db: PostgresDatabase,
+    db: std::sync::Arc<PostgresDatabase>,
 }
 
 impl ClientStorePostgres {
     /// Build a Postgres-backed client store.
-    pub fn new(db: PostgresDatabase) -> Self {
+    pub fn new(db: std::sync::Arc<PostgresDatabase>) -> Self {
         Self { db }
     }
 
@@ -163,7 +164,7 @@ mod tests {
 
     async fn setup_store() -> Option<ClientStorePostgres> {
         let url = test_db_url()?;
-        let db = PostgresDatabase::connect(&url).await.ok()?;
+        let db = std::sync::Arc::new(PostgresDatabase::connect(&url).await.ok()?);
         Some(ClientStorePostgres::new(db))
     }
 

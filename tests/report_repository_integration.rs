@@ -16,7 +16,7 @@ fn test_db_url() -> Option<String> {
 
 async fn create_job_id() -> Option<JobId> {
     let url = test_db_url()?;
-    let db = PostgresDatabase::connect(&url).await.ok()?;
+    let db = std::sync::Arc::new(PostgresDatabase::connect(&url).await.ok()?);
     let job_store = JobStorePostgres::new(db);
     let job = Job::new_instant(
         JobId::new(),
@@ -32,7 +32,7 @@ async fn create_job_id() -> Option<JobId> {
 
 async fn setup_repo() -> Option<ReportRepository<ReportStorePostgres>> {
     let url = test_db_url()?;
-    let db = PostgresDatabase::connect(&url).await.ok()?;
+    let db = std::sync::Arc::new(PostgresDatabase::connect(&url).await.ok()?);
     let store = ReportStorePostgres::new(db);
     Some(ReportRepository::new(Arc::new(store)))
 }

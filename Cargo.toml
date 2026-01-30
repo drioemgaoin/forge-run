@@ -20,6 +20,8 @@ uuid = { version = "1.19.0", features = ["v4", "serde"] }
 thiserror = "2.0.18"
 async-trait = "0.1.89"
 config = "0.14"
+sha2 = "0.10"
+hex = "0.4"
 
 [dev-dependencies]
 insta = "1"

@@ -6,13 +6,14 @@ use async_trait::async_trait;
 use sqlx::PgConnection;
 use time::OffsetDateTime;
 
+#[derive(Clone)]
 pub struct JobStorePostgres {
-    db: PostgresDatabase,
+    db: std::sync::Arc<PostgresDatabase>,
 }
 
 impl JobStorePostgres {
     /// Build a Postgres-backed job store.
-    pub fn new(db: PostgresDatabase) -> Self {
+    pub fn new(db: std::sync::Arc<PostgresDatabase>) -> Self {
         Self { db }
     }
 
@@ -245,6 +246,45 @@ impl JobStorePostgres {
 
         Ok(row)
     }
+
+    async fn claim_next_queued_impl_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Option<JobRow>, JobRepositoryError> {
+        let row = sqlx::query_as::<_, JobRow>(
+            "WITH next_job AS (
+                SELECT id
+                FROM jobs
+                WHERE state = 'queued'
+                ORDER BY created_at ASC
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+            )
+            UPDATE jobs
+            SET state = 'assigned',
+                updated_at = NOW()
+            WHERE id IN (SELECT id FROM next_job)
+            RETURNING
+                id,
+                client_id,
+                job_type,
+                state,
+                attempt,
+                outcome,
+                outcome_reason,
+                executed_at,
+                created_at,
+                updated_at,
+                callback_url,
+                work_kind",
+        )
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|e| match DatabaseError::Query(e.to_string()) {
+            _ => JobRepositoryError::StorageUnavailable,
+        })?;
+
+        Ok(row)
+    }
 }
 
 #[async_trait]
@@ -340,6 +380,14 @@ impl JobStore for JobStorePostgres {
     ) -> Result<Option<JobRow>, JobRepositoryError> {
         Self::get_impl_conn(&mut *tx, job_id).await
     }
+
+    /// Atomically claim the next queued job inside an existing transaction.
+    async fn claim_next_queued_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Option<JobRow>, JobRepositoryError> {
+        Self::claim_next_queued_impl_tx(tx).await
+    }
 }
 
 #[cfg(test)]
@@ -375,7 +423,7 @@ mod tests {
 
     async fn setup_store() -> Option<JobStorePostgres> {
         let url = test_db_url()?;
-        let db = PostgresDatabase::connect(&url).await.ok()?;
+        let db = std::sync::Arc::new(PostgresDatabase::connect(&url).await.ok()?);
         Some(JobStorePostgres::new(db))
     }
 

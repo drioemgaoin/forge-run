@@ -5,13 +5,14 @@ use crate::infrastructure::db::stores::report_store::{ReportRepositoryError, Rep
 use async_trait::async_trait;
 use sqlx::PgConnection;
 
+#[derive(Clone)]
 pub struct ReportStorePostgres {
-    db: PostgresDatabase,
+    db: std::sync::Arc<PostgresDatabase>,
 }
 
 impl ReportStorePostgres {
     /// Build a Postgres-backed report store.
-    pub fn new(db: PostgresDatabase) -> Self {
+    pub fn new(db: std::sync::Arc<PostgresDatabase>) -> Self {
         Self { db }
     }
 
@@ -242,13 +243,13 @@ mod tests {
 
     async fn setup_store() -> Option<ReportStorePostgres> {
         let url = test_db_url()?;
-        let db = PostgresDatabase::connect(&url).await.ok()?;
+        let db = std::sync::Arc::new(PostgresDatabase::connect(&url).await.ok()?);
         Some(ReportStorePostgres::new(db))
     }
 
     async fn create_job_id() -> Option<JobId> {
         let url = test_db_url()?;
-        let db = PostgresDatabase::connect(&url).await.ok()?;
+        let db = std::sync::Arc::new(PostgresDatabase::connect(&url).await.ok()?);
         let job_store = JobStorePostgres::new(db);
         let job = Job::new_instant(
             JobId::new(),

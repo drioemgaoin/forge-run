@@ -5,13 +5,14 @@ use crate::infrastructure::db::stores::event_store::{EventRepositoryError, Event
 use async_trait::async_trait;
 use sqlx::PgConnection;
 
+#[derive(Clone)]
 pub struct EventStorePostgres {
-    db: PostgresDatabase,
+    db: std::sync::Arc<PostgresDatabase>,
 }
 
 impl EventStorePostgres {
     /// Build a Postgres-backed event store.
-    pub fn new(db: PostgresDatabase) -> Self {
+    pub fn new(db: std::sync::Arc<PostgresDatabase>) -> Self {
         Self { db }
     }
 
@@ -133,6 +134,61 @@ impl EventStorePostgres {
 
         Ok(())
     }
+
+    async fn get_by_job_id_and_name_impl_conn(
+        conn: &mut PgConnection,
+        job_id: uuid::Uuid,
+        event_name: &str,
+    ) -> Result<Option<EventRow>, EventRepositoryError> {
+        let row = sqlx::query_as::<_, EventRow>(
+            "SELECT
+                id,
+                job_id,
+                event_name,
+                prev_state,
+                next_state,
+                occurred_at
+            FROM events
+            WHERE job_id = $1 AND event_name = $2
+            ORDER BY occurred_at ASC
+            LIMIT 1",
+        )
+        .bind(job_id)
+        .bind(event_name)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(|e| match DatabaseError::Query(e.to_string()) {
+            _ => EventRepositoryError::StorageUnavailable,
+        })?;
+
+        Ok(row)
+    }
+
+    async fn list_by_job_id_impl_conn(
+        conn: &mut PgConnection,
+        job_id: uuid::Uuid,
+    ) -> Result<Vec<EventRow>, EventRepositoryError> {
+        let rows = sqlx::query_as::<_, EventRow>(
+            "SELECT
+                id,
+                job_id,
+                event_name,
+                prev_state,
+                next_state,
+                occurred_at
+            FROM events
+            WHERE job_id = $1
+            ORDER BY occurred_at ASC",
+        )
+        .bind(job_id)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(|e| match DatabaseError::Query(e.to_string()) {
+            _ => EventRepositoryError::StorageUnavailable,
+        })?;
+
+        Ok(rows)
+    }
 }
 
 #[async_trait]
@@ -173,6 +229,32 @@ impl EventStore for EventStorePostgres {
             .await
     }
 
+    /// Fetch the first event for a job by name. Returns `None` if it doesn't exist.
+    async fn get_by_job_id_and_name(
+        &self,
+        job_id: uuid::Uuid,
+        event_name: &str,
+    ) -> Result<Option<EventRow>, EventRepositoryError> {
+        let name = event_name.to_string();
+        self.db
+            .with_conn(move |conn| {
+                let name = name;
+                Box::pin(async move {
+                    Self::get_by_job_id_and_name_impl_conn(conn, job_id, &name).await
+                })
+            })
+            .await
+    }
+
+    /// List all events for a job ordered by time.
+    async fn list_by_job_id(
+        &self,
+        job_id: uuid::Uuid,
+    ) -> Result<Vec<EventRow>, EventRepositoryError> {
+        self.db
+            .with_conn(move |conn| Box::pin(Self::list_by_job_id_impl_conn(conn, job_id)))
+            .await
+    }
     /// Create a job inside an existing transaction and return the stored row.
     async fn insert_tx(
         &self,
@@ -208,6 +290,25 @@ impl EventStore for EventStorePostgres {
     ) -> Result<Option<EventRow>, EventRepositoryError> {
         Self::get_impl_conn(&mut *tx, event_id).await
     }
+
+    /// Fetch the first event for a job by name inside an existing transaction.
+    async fn get_by_job_id_and_name_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        job_id: uuid::Uuid,
+        event_name: &str,
+    ) -> Result<Option<EventRow>, EventRepositoryError> {
+        Self::get_by_job_id_and_name_impl_conn(&mut *tx, job_id, event_name).await
+    }
+
+    /// List all events for a job ordered by time inside an existing transaction.
+    async fn list_by_job_id_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        job_id: uuid::Uuid,
+    ) -> Result<Vec<EventRow>, EventRepositoryError> {
+        Self::list_by_job_id_impl_conn(&mut *tx, job_id).await
+    }
 }
 
 #[cfg(test)]
@@ -229,7 +330,7 @@ mod tests {
 
     async fn create_job_id() -> Option<JobId> {
         let url = test_db_url()?;
-        let db = PostgresDatabase::connect(&url).await.ok()?;
+        let db = std::sync::Arc::new(PostgresDatabase::connect(&url).await.ok()?);
         let job_store = JobStorePostgres::new(db);
         let job = Job::new_instant(
             JobId::new(),
@@ -256,7 +357,7 @@ mod tests {
 
     async fn setup_store() -> Option<EventStorePostgres> {
         let url = test_db_url()?;
-        let db = PostgresDatabase::connect(&url).await.ok()?;
+        let db = std::sync::Arc::new(PostgresDatabase::connect(&url).await.ok()?);
         Some(EventStorePostgres::new(db))
     }
 

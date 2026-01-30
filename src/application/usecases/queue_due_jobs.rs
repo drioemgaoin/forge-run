@@ -1,67 +1,67 @@
-// Use case: cancel_job.
+// Use case: queue_due_jobs.
 
 use crate::domain::entities::event::Event;
-use crate::domain::entities::job::{Job, JobState};
+use crate::domain::entities::job::Job;
 use crate::domain::services::job_lifecycle::{JobLifecycleError, JobLifecycleService};
-use crate::domain::value_objects::ids::JobId;
+use crate::domain::value_objects::timestamps::Timestamp;
 use crate::infrastructure::db::dto::JobRow;
 use crate::infrastructure::db::stores::job_store::JobStore;
 
-/// Cancels a job if possible.
-pub struct CancelJobUseCase<S: JobStore, L: JobLifecycleService> {
+/// Moves due deferred jobs into the queue.
+pub struct QueueDueJobsUseCase<S: JobStore, L: JobLifecycleService> {
     pub job_store: S,
     pub lifecycle: L,
 }
 
 #[derive(Debug)]
-pub enum CancelJobError {
-    NotFound,
+pub enum QueueDueJobsError {
     Storage(String),
     Transition(JobLifecycleError),
 }
 
 #[derive(Debug)]
-pub struct CancelJobResult {
-    pub job: Job,
-    pub event: Option<Event>,
+pub struct QueueDueJobsResult {
+    pub jobs: Vec<Job>,
+    pub events: Vec<Event>,
 }
 
-impl<S: JobStore + Send + Sync, L: JobLifecycleService + Send + Sync> CancelJobUseCase<S, L> {
-    /// Cancel a job and emit a cancellation event.
-    pub async fn execute(&self, job_id: JobId) -> Result<CancelJobResult, CancelJobError> {
-        // Step 1: Fetch the job.
-        let row = self
+impl<S: JobStore + Send + Sync, L: JobLifecycleService + Send + Sync> QueueDueJobsUseCase<S, L> {
+    /// Find due jobs and move them to `Queued` with events.
+    pub async fn execute(
+        &self,
+        now: Timestamp,
+        limit: u32,
+    ) -> Result<QueueDueJobsResult, QueueDueJobsError> {
+        // Step 1: Load due deferred jobs.
+        let rows = self
             .job_store
-            .get(job_id.0)
+            .list_due_deferred(now.as_inner(), limit)
             .await
-            .map_err(|e| CancelJobError::Storage(format!("{e:?}")))?;
+            .map_err(|e| QueueDueJobsError::Storage(format!("{e:?}")))?;
 
-        let row = row.ok_or(CancelJobError::NotFound)?;
-        let mut job = JobRow::into_job(row);
+        let mut jobs = Vec::new();
+        let mut events = Vec::new();
 
-        // Step 2: If already canceled, return current state without emitting new event.
-        if job.state == JobState::Canceled {
-            return Ok(CancelJobResult { job, event: None });
+        // Step 2: Transition each job to queued (persist job + event).
+        for row in rows {
+            let mut job = JobRow::into_job(row);
+            let event = self
+                .lifecycle
+                .transition(&mut job, crate::domain::entities::job::JobState::Queued)
+                .await
+                .map_err(QueueDueJobsError::Transition)?;
+            jobs.push(job);
+            events.push(event);
         }
 
-        // Step 3: Transition to Canceled (persists job + event).
-        let event = self
-            .lifecycle
-            .transition(&mut job, JobState::Canceled)
-            .await
-            .map_err(CancelJobError::Transition)?;
-
-        // Step 4: Return updated job and event.
-        Ok(CancelJobResult {
-            job,
-            event: Some(event),
-        })
+        // Step 3: Return the list of scheduled jobs and events.
+        Ok(QueueDueJobsResult { jobs, events })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{CancelJobError, CancelJobUseCase};
+    use super::QueueDueJobsUseCase;
     use crate::domain::entities::event::{Event, EventName};
     use crate::domain::entities::job::{Job, JobState};
     use crate::domain::services::job_lifecycle::{JobLifecycleError, JobLifecycleService};
@@ -71,15 +71,16 @@ mod tests {
     use crate::infrastructure::db::stores::job_store::{JobRepositoryError, JobStore};
     use async_trait::async_trait;
     use std::sync::Mutex;
+    use time::OffsetDateTime;
 
     struct DummyStore {
-        row: Mutex<Option<JobRow>>,
+        rows: Mutex<Vec<JobRow>>,
     }
 
     #[async_trait]
     impl JobStore for DummyStore {
         async fn get(&self, _job_id: uuid::Uuid) -> Result<Option<JobRow>, JobRepositoryError> {
-            Ok(self.row.lock().unwrap().clone())
+            Ok(None)
         }
 
         async fn insert(&self, _row: &JobRow) -> Result<JobRow, JobRepositoryError> {
@@ -96,10 +97,10 @@ mod tests {
 
         async fn list_due_deferred(
             &self,
-            _now: time::OffsetDateTime,
+            _now: OffsetDateTime,
             _limit: u32,
         ) -> Result<Vec<JobRow>, JobRepositoryError> {
-            Err(JobRepositoryError::InvalidInput)
+            Ok(self.rows.lock().unwrap().clone())
         }
 
         async fn claim_next_queued(&self) -> Result<Option<JobRow>, JobRepositoryError> {
@@ -177,13 +178,12 @@ mod tests {
             next_state: JobState,
         ) -> Result<Event, JobLifecycleError> {
             job.state = next_state;
-            job.updated_at = Timestamp::now_utc();
             Ok(Event {
                 id: EventId::new(),
                 job_id: job.id,
-                event_name: EventName::JobCanceled,
+                event_name: EventName::JobQueued,
                 prev_state: JobState::Created,
-                next_state: JobState::Canceled,
+                next_state: JobState::Queued,
                 timestamp: Timestamp::now_utc(),
             })
         }
@@ -199,66 +199,37 @@ mod tests {
         }
     }
 
-    fn sample_job_row(state: JobState, job_id: JobId) -> JobRow {
-        let mut job = Job::new_instant(
-            job_id,
+    fn sample_row() -> JobRow {
+        let now = Timestamp::now_utc();
+        let execution_at = Timestamp::from(now.as_inner() + time::Duration::seconds(1));
+        let job = Job::new_deferred(
+            JobId::new(),
             ClientId::new(),
+            execution_at,
             None,
             Some("SUCCESS_FAST".to_string()),
         )
         .unwrap();
-        job.state = state;
         JobRow::from_job(&job)
     }
 
     #[tokio::test]
-    async fn given_active_job_when_execute_should_cancel_and_emit_event() {
-        let job_id = JobId::new();
-        let row = sample_job_row(JobState::Created, job_id);
+    async fn given_due_jobs_when_execute_should_queue_each_one() {
         let store = DummyStore {
-            row: Mutex::new(Some(row)),
+            rows: Mutex::new(vec![sample_row()]),
         };
-        let usecase = CancelJobUseCase {
+        let usecase = QueueDueJobsUseCase {
             job_store: store,
             lifecycle: DummyLifecycle,
         };
 
-        let result = usecase.execute(job_id).await.unwrap();
+        let result = usecase
+            .execute(Timestamp::now_utc(), 10)
+            .await
+            .unwrap();
 
-        assert_eq!(result.job.state, JobState::Canceled);
-        assert!(result.event.is_some());
-    }
-
-    #[tokio::test]
-    async fn given_canceled_job_when_execute_should_return_without_event() {
-        let job_id = JobId::new();
-        let row = sample_job_row(JobState::Canceled, job_id);
-        let store = DummyStore {
-            row: Mutex::new(Some(row)),
-        };
-        let usecase = CancelJobUseCase {
-            job_store: store,
-            lifecycle: DummyLifecycle,
-        };
-
-        let result = usecase.execute(job_id).await.unwrap();
-
-        assert_eq!(result.job.state, JobState::Canceled);
-        assert!(result.event.is_none());
-    }
-
-    #[tokio::test]
-    async fn given_missing_job_when_execute_should_return_not_found() {
-        let store = DummyStore {
-            row: Mutex::new(None),
-        };
-        let usecase = CancelJobUseCase {
-            job_store: store,
-            lifecycle: DummyLifecycle,
-        };
-
-        let result = usecase.execute(JobId::new()).await;
-
-        assert!(matches!(result, Err(CancelJobError::NotFound)));
+        assert_eq!(result.jobs.len(), 1);
+        assert_eq!(result.events.len(), 1);
+        assert_eq!(result.jobs[0].state, JobState::Queued);
     }
 }
