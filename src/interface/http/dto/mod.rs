@@ -1,5 +1,5 @@
-pub mod api_keys;
-pub mod clients;
-pub mod jobs;
-pub mod reports;
-pub mod webhooks;
+pub mod api_key;
+pub mod client;
+pub mod job;
+pub mod report;
+pub mod webhook;

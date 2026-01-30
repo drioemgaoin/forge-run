@@ -17,6 +17,9 @@ sqlx = { version = "0.7", features = [
 redis = { version = "0.25", features = ["tokio-comp"] }
 time = { version = "0.3.46", features = ["formatting", "serde"] }
 uuid = { version = "1.19.0", features = ["v4", "serde"] }
+thiserror = "2.0.18"
+async-trait = "0.1.89"
+config = "0.14"
 
 [dev-dependencies]
 insta = "1"

@@ -1,5 +1,8 @@
 -- Initial PostgreSQL schema for ForgeRun.
 
+-- Extensions
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- Enums
 CREATE TYPE job_type AS ENUM ('instant', 'deferred');
 CREATE TYPE job_state AS ENUM ('created', 'queued', 'assigned', 'running', 'succeeded', 'failed', 'canceled');
@@ -35,7 +38,7 @@ CREATE INDEX api_keys_key_prefix_idx ON api_keys(key_prefix);
 
 -- Jobs
 CREATE TABLE jobs (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
     job_type job_type NOT NULL,
     state job_state NOT NULL,

@@ -1,9 +1,7 @@
-use uuid::Uuid;
-
 macro_rules! id_type {
     ($name:ident) => {
         #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-        pub struct $name(pub u128);
+        pub struct $name(pub uuid::Uuid);
 
         impl Default for $name {
             fn default() -> Self {
@@ -14,7 +12,7 @@ macro_rules! id_type {
         impl $name {
             #[inline]
             pub fn new() -> Self {
-                Self(Uuid::new_v4().as_u128())
+                Self(uuid::Uuid::new_v4())
             }
         }
     };
