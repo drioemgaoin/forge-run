@@ -4,13 +4,13 @@ use crate::infrastructure::db::dto::ReportRow;
 use crate::infrastructure::db::stores::report_store::{ReportRepositoryError, ReportStore};
 use std::sync::Arc;
 
-pub struct ReportRepository<S: ReportStore> {
-    store: Arc<S>,
+pub struct ReportRepository {
+    store: Arc<dyn ReportStore>,
 }
 
-impl<S: ReportStore> ReportRepository<S> {
+impl ReportRepository {
     /// Build a repository that uses the given store implementation.
-    pub fn new(store: Arc<S>) -> Self {
+    pub fn new(store: Arc<dyn ReportStore>) -> Self {
         Self { store }
     }
 
@@ -74,6 +74,65 @@ impl<S: ReportStore> ReportRepository<S> {
     pub async fn delete(&self, job_id: JobId) -> Result<(), ReportRepositoryError> {
         self.store
             .delete(job_id.0)
+            .await
+            .map_err(|_| ReportRepositoryError::StorageUnavailable)
+    }
+
+    /// Fetch a report by job ID inside an existing transaction.
+    pub async fn get_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        job_id: JobId,
+    ) -> Result<Option<Report>, ReportRepositoryError> {
+        let row = self
+            .store
+            .get_tx(tx, job_id.0)
+            .await
+            .map_err(|_| ReportRepositoryError::StorageUnavailable)?;
+
+        Ok(row.map(ReportRow::into_report))
+    }
+
+    /// Create a report inside an existing transaction and return stored data.
+    pub async fn insert_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        report: &Report,
+    ) -> Result<Report, ReportRepositoryError> {
+        let dto = ReportRow::from_report(report);
+        let stored = self
+            .store
+            .insert_tx(tx, &dto)
+            .await
+            .map_err(|_| ReportRepositoryError::StorageUnavailable)?;
+
+        Ok(stored.into_report_with_events(report.events.clone()))
+    }
+
+    /// Update a report inside an existing transaction and return stored data.
+    pub async fn update_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        report: &Report,
+    ) -> Result<Report, ReportRepositoryError> {
+        let dto = ReportRow::from_report(report);
+        let stored = self
+            .store
+            .update_tx(tx, &dto)
+            .await
+            .map_err(|_| ReportRepositoryError::StorageUnavailable)?;
+
+        Ok(stored.into_report_with_events(report.events.clone()))
+    }
+
+    /// Delete a report by job ID inside an existing transaction.
+    pub async fn delete_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        job_id: JobId,
+    ) -> Result<(), ReportRepositoryError> {
+        self.store
+            .delete_tx(tx, job_id.0)
             .await
             .map_err(|_| ReportRepositoryError::StorageUnavailable)
     }

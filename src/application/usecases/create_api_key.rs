@@ -1,20 +1,15 @@
 // Use case: create_api_key.
 
+use crate::application::context::AppContext;
 use crate::application::shared::api_key_helpers::generate_api_key;
 use crate::application::shared::api_key_types::{ApiKeyResult, ApiKeyUseCaseError};
 use crate::domain::value_objects::ids::ClientId;
 use crate::infrastructure::db::database::DatabaseError;
 use crate::infrastructure::db::dto::ApiKeyRow;
-use crate::infrastructure::db::postgres::PostgresDatabase;
-use crate::infrastructure::db::stores::api_key_store::ApiKeyStore;
-use std::sync::Arc;
 use time::OffsetDateTime;
 
 /// Creates API keys for clients (with optional rotation).
-pub struct CreateApiKeyUseCase<S: ApiKeyStore> {
-    db: Arc<PostgresDatabase>,
-    store: S,
-}
+pub struct CreateApiKeyUseCase;
 
 /// Input for creating or rotating an API key.
 #[derive(Debug, Clone)]
@@ -23,28 +18,23 @@ pub struct CreateApiKeyCommand {
     pub rotate: bool,
 }
 
-impl<S: ApiKeyStore + Send + Sync + Clone + 'static> CreateApiKeyUseCase<S> {
-    pub fn new(db: Arc<PostgresDatabase>, store: S) -> Self {
-        Self { db, store }
-    }
-
+impl CreateApiKeyUseCase {
     /// Create an API key (or return an existing active one when rotate=false).
     pub async fn execute(
-        &self,
+        ctx: &AppContext,
         cmd: CreateApiKeyCommand,
     ) -> Result<ApiKeyResult, ApiKeyUseCaseError> {
-        let store = self.store.clone();
+        let repo = ctx.repos.api_key.clone();
         let client_id = cmd.client_id.0;
         let rotate = cmd.rotate;
         let now = OffsetDateTime::now_utc();
-
         // Step 1: Run the flow in a single transaction.
-        self.db
+        ctx.repos
             .with_tx(|tx| {
-                let store = store.clone();
+                let repo = repo.clone();
                 Box::pin(async move {
                     // Step 2: Check for an existing active key.
-                    if let Some(existing) = store
+                    if let Some(existing) = repo
                         .get_active_by_client_id_tx(tx, client_id)
                         .await
                         .map_err(|e| DatabaseError::Query(format!("{e:?}")))?
@@ -62,8 +52,7 @@ impl<S: ApiKeyStore + Send + Sync + Clone + 'static> CreateApiKeyUseCase<S> {
                         // Step 4: Revoke the existing key before creating a new one.
                         let mut revoked = existing.clone();
                         revoked.revoked_at = Some(now);
-                        store
-                            .update_tx(tx, &revoked)
+                        repo.update_tx(tx, &revoked)
                             .await
                             .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
                     }
@@ -79,7 +68,7 @@ impl<S: ApiKeyStore + Send + Sync + Clone + 'static> CreateApiKeyUseCase<S> {
                         expires_at: None,
                         revoked_at: None,
                     };
-                    let stored = store
+                    let stored = repo
                         .insert_tx(tx, &row)
                         .await
                         .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
@@ -102,14 +91,11 @@ impl<S: ApiKeyStore + Send + Sync + Clone + 'static> CreateApiKeyUseCase<S> {
 #[cfg(test)]
 mod tests {
     use super::{CreateApiKeyCommand, CreateApiKeyUseCase};
+    use crate::application::context::test_support::test_context;
+    use crate::domain::entities::client::Client;
     use crate::domain::value_objects::ids::ClientId;
-    use crate::domain::value_objects::timestamps::Timestamp;
-    use crate::infrastructure::db::dto::ClientRow;
     use crate::infrastructure::db::postgres::PostgresDatabase;
-    use crate::infrastructure::db::postgres::api_key_store_postgres::ApiKeyStorePostgres;
-    use crate::infrastructure::db::postgres::client_store_postgres::ClientStorePostgres;
-    use crate::infrastructure::db::stores::api_key_store::ApiKeyStore;
-    use crate::infrastructure::db::stores::client_store::ClientStore;
+    use crate::infrastructure::db::repositories::Repositories;
     use std::sync::Arc;
 
     fn test_db_url() -> Option<String> {
@@ -122,29 +108,26 @@ mod tests {
             return;
         };
         let db = Arc::new(PostgresDatabase::connect(&url).await.unwrap());
-        let api_store = ApiKeyStorePostgres::new(db.clone());
-        let client_store = ClientStorePostgres::new(db.clone());
-
         let client_id = ClientId::new();
-        let client_row = ClientRow {
-            id: client_id.0,
-            created_at: Timestamp::now_utc().as_inner(),
-        };
-        client_store.insert(&client_row).await.unwrap();
 
-        let usecase = CreateApiKeyUseCase::new(db, api_store.clone());
-        let result = usecase
-            .execute(CreateApiKeyCommand {
+        let mut ctx = test_context();
+        ctx.repos = Repositories::postgres(db);
+        let client = Client::new(client_id);
+        ctx.repos.client.insert(&client).await.unwrap();
+        let result = CreateApiKeyUseCase::execute(
+            &ctx,
+            CreateApiKeyCommand {
                 client_id,
                 rotate: false,
-            })
-            .await
-            .unwrap();
+            },
+        )
+        .await
+        .unwrap();
 
         assert!(result.api_key.is_some());
 
-        api_store.delete(result.key_id).await.unwrap();
-        client_store.delete(client_id.0).await.unwrap();
+        ctx.repos.api_key.delete(result.key_id).await.unwrap();
+        ctx.repos.client.delete(client_id).await.unwrap();
     }
 
     #[tokio::test]
@@ -153,37 +136,36 @@ mod tests {
             return;
         };
         let db = Arc::new(PostgresDatabase::connect(&url).await.unwrap());
-        let api_store = ApiKeyStorePostgres::new(db.clone());
-        let client_store = ClientStorePostgres::new(db.clone());
-
         let client_id = ClientId::new();
-        let client_row = ClientRow {
-            id: client_id.0,
-            created_at: Timestamp::now_utc().as_inner(),
-        };
-        client_store.insert(&client_row).await.unwrap();
 
-        let usecase = CreateApiKeyUseCase::new(db, api_store.clone());
-        let first = usecase
-            .execute(CreateApiKeyCommand {
+        let mut ctx = test_context();
+        ctx.repos = Repositories::postgres(db);
+        let client = Client::new(client_id);
+        ctx.repos.client.insert(&client).await.unwrap();
+        let first = CreateApiKeyUseCase::execute(
+            &ctx,
+            CreateApiKeyCommand {
                 client_id,
                 rotate: false,
-            })
-            .await
-            .unwrap();
+            },
+        )
+        .await
+        .unwrap();
 
-        let second = usecase
-            .execute(CreateApiKeyCommand {
+        let second = CreateApiKeyUseCase::execute(
+            &ctx,
+            CreateApiKeyCommand {
                 client_id,
                 rotate: false,
-            })
-            .await
-            .unwrap();
+            },
+        )
+        .await
+        .unwrap();
 
         assert_eq!(first.key_id, second.key_id);
         assert!(second.api_key.is_none());
 
-        api_store.delete(first.key_id).await.unwrap();
-        client_store.delete(client_id.0).await.unwrap();
+        ctx.repos.api_key.delete(first.key_id).await.unwrap();
+        ctx.repos.client.delete(client_id).await.unwrap();
     }
 }

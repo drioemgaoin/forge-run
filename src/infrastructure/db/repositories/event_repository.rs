@@ -4,13 +4,13 @@ use crate::infrastructure::db::dto::EventRow;
 use crate::infrastructure::db::stores::event_store::{EventRepositoryError, EventStore};
 use std::sync::Arc;
 
-pub struct EventRepository<S: EventStore> {
-    store: Arc<S>,
+pub struct EventRepository {
+    store: Arc<dyn EventStore>,
 }
 
-impl<S: EventStore> EventRepository<S> {
+impl EventRepository {
     /// Build a repository that uses the given store implementation.
-    pub fn new(store: Arc<S>) -> Self {
+    pub fn new(store: Arc<dyn EventStore>) -> Self {
         Self { store }
     }
 
@@ -64,6 +64,110 @@ impl<S: EventStore> EventRepository<S> {
     pub async fn delete(&self, event_id: EventId) -> Result<(), EventRepositoryError> {
         self.store
             .delete(event_id.0)
+            .await
+            .map_err(|_| EventRepositoryError::StorageUnavailable)
+    }
+
+    /// List all events for a job.
+    pub async fn list_by_job_id(
+        &self,
+        job_id: crate::domain::value_objects::ids::JobId,
+    ) -> Result<Vec<EventRow>, EventRepositoryError> {
+        self.store
+            .list_by_job_id(job_id.0)
+            .await
+            .map_err(|_| EventRepositoryError::StorageUnavailable)
+    }
+
+    /// Fetch an event by job id and name.
+    pub async fn get_by_job_id_and_name(
+        &self,
+        job_id: crate::domain::value_objects::ids::JobId,
+        event_name: &str,
+    ) -> Result<Option<EventRow>, EventRepositoryError> {
+        self.store
+            .get_by_job_id_and_name(job_id.0, event_name)
+            .await
+            .map_err(|_| EventRepositoryError::StorageUnavailable)
+    }
+
+    /// Fetch an event by its ID inside an existing transaction.
+    pub async fn get_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        event_id: EventId,
+    ) -> Result<Option<EventRow>, EventRepositoryError> {
+        self.store
+            .get_tx(tx, event_id.0)
+            .await
+            .map_err(|_| EventRepositoryError::StorageUnavailable)
+    }
+
+    /// Create an event inside an existing transaction and return stored data.
+    pub async fn insert_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        event: &Event,
+    ) -> Result<Event, EventRepositoryError> {
+        let dto = EventRow::from_event(event);
+        let stored = self
+            .store
+            .insert_tx(tx, &dto)
+            .await
+            .map_err(|_| EventRepositoryError::StorageUnavailable)?;
+
+        Ok(stored.into_event())
+    }
+
+    /// Update an event inside an existing transaction and return stored data.
+    pub async fn update_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        event: &Event,
+    ) -> Result<Event, EventRepositoryError> {
+        let dto = EventRow::from_event(event);
+        let stored = self
+            .store
+            .update_tx(tx, &dto)
+            .await
+            .map_err(|_| EventRepositoryError::StorageUnavailable)?;
+
+        Ok(stored.into_event())
+    }
+
+    /// Delete an event inside an existing transaction.
+    pub async fn delete_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        event_id: EventId,
+    ) -> Result<(), EventRepositoryError> {
+        self.store
+            .delete_tx(tx, event_id.0)
+            .await
+            .map_err(|_| EventRepositoryError::StorageUnavailable)
+    }
+
+    /// List events for a job inside an existing transaction.
+    pub async fn list_by_job_id_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        job_id: crate::domain::value_objects::ids::JobId,
+    ) -> Result<Vec<EventRow>, EventRepositoryError> {
+        self.store
+            .list_by_job_id_tx(tx, job_id.0)
+            .await
+            .map_err(|_| EventRepositoryError::StorageUnavailable)
+    }
+
+    /// Fetch an event by job id and name inside an existing transaction.
+    pub async fn get_by_job_id_and_name_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        job_id: crate::domain::value_objects::ids::JobId,
+        event_name: &str,
+    ) -> Result<Option<EventRow>, EventRepositoryError> {
+        self.store
+            .get_by_job_id_and_name_tx(tx, job_id.0, event_name)
             .await
             .map_err(|_| EventRepositoryError::StorageUnavailable)
     }
@@ -206,7 +310,7 @@ mod tests {
     #[tokio::test]
     async fn given_event_when_insert_should_return_stored_event() {
         let store = Arc::new(DummyStore::new());
-        let repo = EventRepository::new(store);
+        let repo = EventRepository::new(store.clone());
         let event = sample_event();
 
         let stored = repo.insert(&event).await.unwrap();

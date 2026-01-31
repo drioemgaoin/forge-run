@@ -28,3 +28,24 @@ pub trait WebhookStore: Send + Sync {
     /// Delete a webhook by its ID. Returns an error if it doesn't exist.
     async fn delete(&self, webhook_id: uuid::Uuid) -> Result<(), WebhookRepositoryError>;
 }
+
+/// A no-op webhook store used when persistence is not configured.
+pub struct DisabledWebhookStore;
+
+#[async_trait]
+impl WebhookStore for DisabledWebhookStore {
+    async fn get(
+        &self,
+        _webhook_id: uuid::Uuid,
+    ) -> Result<Option<WebhookRow>, WebhookRepositoryError> {
+        Err(WebhookRepositoryError::StorageUnavailable)
+    }
+
+    async fn insert(&self, _row: &WebhookRow) -> Result<WebhookRow, WebhookRepositoryError> {
+        Err(WebhookRepositoryError::StorageUnavailable)
+    }
+
+    async fn delete(&self, _webhook_id: uuid::Uuid) -> Result<(), WebhookRepositoryError> {
+        Err(WebhookRepositoryError::StorageUnavailable)
+    }
+}

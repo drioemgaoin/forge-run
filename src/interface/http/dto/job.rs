@@ -6,6 +6,7 @@ pub struct SubmitJobRequest {
     pub execution_at: Option<String>,
     pub callback: Option<String>,
     pub idempotency_key: Option<String>,
+    pub work_kind: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -20,7 +21,7 @@ pub struct JobResponse {
     pub job_id: String,
     pub r#type: String,
     pub state: String,
-    pub outcome: String,
+    pub outcome: Option<String>,
     pub created_at: String,
     pub execution_at: Option<String>,
     pub updated_at: String,

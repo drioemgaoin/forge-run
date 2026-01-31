@@ -1,44 +1,40 @@
 // Use case: create_client.
 
+use crate::application::context::AppContext;
 use crate::domain::entities::client::Client;
 use crate::domain::value_objects::ids::ClientId;
-use crate::infrastructure::db::dto::ClientRow;
-use crate::infrastructure::db::stores::client_store::ClientStore;
 
 /// Creates a new client record.
-pub struct CreateClientUseCase<S: ClientStore> {
-    pub store: S,
-}
+pub struct CreateClientUseCase;
 
 #[derive(Debug)]
 pub enum CreateClientError {
     Storage(String),
 }
 
-impl<S: ClientStore + Send + Sync> CreateClientUseCase<S> {
+impl CreateClientUseCase {
     /// Create a new client and return it.
-    pub async fn execute(&self) -> Result<Client, CreateClientError> {
+    pub async fn execute(ctx: &AppContext) -> Result<Client, CreateClientError> {
         // Step 1: Build a new domain client (generates ID and timestamps).
         let client = Client::new(ClientId::new());
 
-        // Step 2: Convert to a database row.
-        let row = ClientRow::from_client(&client);
-
-        // Step 3: Persist the row.
-        let stored = self
-            .store
-            .insert(&row)
+        // Step 2: Persist the client.
+        let stored = ctx
+            .repos
+            .client
+            .insert(&client)
             .await
             .map_err(|e| CreateClientError::Storage(format!("{e:?}")))?;
 
-        // Step 4: Return the stored client.
-        Ok(stored.into_client())
+        // Step 3: Return the stored client.
+        Ok(stored)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{CreateClientError, CreateClientUseCase};
+    use crate::application::context::test_support::test_context;
     use crate::infrastructure::db::dto::ClientRow;
     use crate::infrastructure::db::stores::client_store::{ClientRepositoryError, ClientStore};
     use async_trait::async_trait;
@@ -82,9 +78,14 @@ mod tests {
     #[tokio::test]
     async fn given_valid_request_when_execute_should_create_client() {
         let store = DummyStore::new();
-        let usecase = CreateClientUseCase { store };
+        let mut ctx = test_context();
+        ctx.repos.client = std::sync::Arc::new(
+            crate::infrastructure::db::repositories::client_repository::ClientRepository::new(
+                std::sync::Arc::new(store),
+            ),
+        );
 
-        let client = usecase.execute().await.unwrap();
+        let client = CreateClientUseCase::execute(&ctx).await.unwrap();
 
         assert!(!client.id.0.is_nil());
     }
@@ -115,8 +116,13 @@ mod tests {
             }
         }
 
-        let usecase = CreateClientUseCase { store: ErrorStore };
-        let result = usecase.execute().await;
+        let mut ctx = test_context();
+        ctx.repos.client = std::sync::Arc::new(
+            crate::infrastructure::db::repositories::client_repository::ClientRepository::new(
+                std::sync::Arc::new(ErrorStore),
+            ),
+        );
+        let result = CreateClientUseCase::execute(&ctx).await;
 
         assert!(matches!(result, Err(CreateClientError::Storage(_))));
     }

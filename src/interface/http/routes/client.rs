@@ -1,8 +1,9 @@
 // HTTP routes: client creation.
 
-use crate::application::usecases::create_client::CreateClientUseCase;
-use crate::infrastructure::db::postgres::client_store_postgres::ClientStorePostgres;
+use crate::interface::http::problem::{RFA_STORAGE_DB_ERROR, problem};
 use crate::interface::http::state::AppState;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::{Json, Router, routing::post};
 
 /// Builds the client routes (currently only client creation).
@@ -13,13 +14,23 @@ pub fn router() -> Router<AppState> {
 /// Creates a new client and returns its identifier.
 ///
 /// This is a public endpoint used during onboarding.
-async fn create_client(state: axum::extract::State<AppState>) -> Json<serde_json::Value> {
-    // Step 1: build the store and use case.
-    let store = ClientStorePostgres::new(state.db.clone());
-    let usecase = CreateClientUseCase { store };
-    // Step 3: run the use case and map the output to a JSON payload.
-    match usecase.execute().await {
-        Ok(client) => Json(serde_json::json!({ "client_id": client.id.0.to_string() })),
-        Err(_) => Json(serde_json::json!({ "error": "storage unavailable" })),
+async fn create_client(state: axum::extract::State<AppState>) -> Response {
+    // Step 1: Run the use case.
+    let result =
+        crate::application::usecases::create_client::CreateClientUseCase::execute(&state.ctx).await;
+
+    // Step 2: Map output to HTTP response.
+    match result {
+        Ok(client) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({ "client_id": client.id.0.to_string() })),
+        )
+            .into_response(),
+        Err(_) => problem(
+            StatusCode::SERVICE_UNAVAILABLE,
+            RFA_STORAGE_DB_ERROR,
+            Some("storage unavailable".to_string()),
+            None,
+        ),
     }
 }

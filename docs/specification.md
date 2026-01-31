@@ -250,7 +250,7 @@ Endpoints:
 - Method: `POST`
 - Path: `/jobs`
 - Request:
-  - `type`: enum (`EXECUTE`, `DEFERRED`, `EMIT_EVENT`)
+- `type`: enum (`EXECUTE`, `DEFERRED`)
   - `execution_at`: optional ISO-8601 UTC timestamp
   - `callback`: optional URL (must be https:// or http://)
   - `idempotency_key`: optional string (if not provided then header is used)
@@ -282,7 +282,7 @@ Endpoints:
 - Path: `/jobs/{job_id}`
 - Response:
   - `job_id`: string
-  - `type`: enum (`EXECUTE`, `DEFERRED`, `EMIT_EVENT`)
+  - `type`: enum (`EXECUTE`, `DEFERRED`)
   - `state`: enum (section 7)
   - `outcome`: enum (`SUCCESS`, `FAILED`, `CANCELED`)
   - `created_at`: string (UTC)

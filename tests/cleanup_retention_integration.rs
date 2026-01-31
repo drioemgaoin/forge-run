@@ -1,5 +1,7 @@
+use forge_run::application::context::AppContext;
 use forge_run::application::usecases::cleanup_retention::CleanupRetentionUseCase;
 use forge_run::domain::entities::job::{Job, JobOutcome, JobState};
+use forge_run::domain::services::job_lifecycle::JobLifecycle;
 use forge_run::domain::value_objects::ids::{ClientId, JobId};
 use forge_run::domain::value_objects::timestamps::Timestamp;
 use forge_run::infrastructure::db::dto::{ApiKeyRow, ClientRow, EventRow, JobRow, ReportRow};
@@ -9,6 +11,7 @@ use forge_run::infrastructure::db::postgres::client_store_postgres::ClientStoreP
 use forge_run::infrastructure::db::postgres::event_store_postgres::EventStorePostgres;
 use forge_run::infrastructure::db::postgres::job_store_postgres::JobStorePostgres;
 use forge_run::infrastructure::db::postgres::report_store_postgres::ReportStorePostgres;
+use forge_run::infrastructure::db::repositories::Repositories;
 use forge_run::infrastructure::db::stores::api_key_store::ApiKeyStore;
 use forge_run::infrastructure::db::stores::client_store::ClientStore;
 use forge_run::infrastructure::db::stores::event_store::EventStore;
@@ -27,13 +30,14 @@ async fn given_expired_job_and_revoked_key_when_cleanup_should_delete_both() {
         return;
     };
     let db = Arc::new(PostgresDatabase::connect(&url).await.unwrap());
-    let usecase = CleanupRetentionUseCase { db: db.clone() };
-
     let client_store = ClientStorePostgres::new(db.clone());
     let job_store = JobStorePostgres::new(db.clone());
     let event_store = EventStorePostgres::new(db.clone());
     let report_store = ReportStorePostgres::new(db.clone());
     let api_key_store = ApiKeyStorePostgres::new(db.clone());
+    let repos = Repositories::postgres(db.clone());
+    let lifecycle = JobLifecycle::new(repos.clone());
+    let ctx = AppContext::new(repos, Arc::new(lifecycle));
 
     let client_id = ClientId::new();
     let client_row = ClientRow {
@@ -88,7 +92,7 @@ async fn given_expired_job_and_revoked_key_when_cleanup_should_delete_both() {
     };
     api_key_store.insert(&api_key).await.unwrap();
 
-    let result = usecase.execute().await.unwrap();
+    let result = CleanupRetentionUseCase::execute(&ctx).await.unwrap();
 
     assert!(result.jobs_deleted >= 1);
     assert!(result.api_keys_deleted >= 1);

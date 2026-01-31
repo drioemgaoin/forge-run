@@ -1,13 +1,17 @@
 // HTTP routes: API key management.
 
-use crate::application::usecases::create_api_key::{CreateApiKeyCommand, CreateApiKeyUseCase};
-use crate::application::usecases::renew_api_key::{RenewApiKeyCommand, RenewApiKeyUseCase};
-use crate::application::usecases::revoke_api_key::{RevokeApiKeyCommand, RevokeApiKeyUseCase};
+use crate::application::usecases::create_api_key::CreateApiKeyCommand;
+use crate::application::usecases::renew_api_key::RenewApiKeyCommand;
+use crate::application::usecases::revoke_api_key::RevokeApiKeyCommand;
 use crate::domain::value_objects::ids::ClientId;
-use crate::infrastructure::db::postgres::api_key_store_postgres::ApiKeyStorePostgres;
 use crate::interface::http::dto::api_key::{CreateApiKeyRequest, RevokeApiKeyRequest};
+use crate::interface::http::problem::{
+    RFA_JOB_NOT_FOUND, RFA_REQUEST_MALFORMED, RFA_STORAGE_DB_ERROR, problem,
+};
 use crate::interface::http::state::AppState;
 use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::{Json, Router, routing::post};
 use time::format_description::well_known::Rfc3339;
 
@@ -26,60 +30,101 @@ async fn create_key(
     State(state): State<AppState>,
     Path(client_id): Path<String>,
     Json(payload): Json<CreateApiKeyRequest>,
-) -> Json<serde_json::Value> {
-    // Step 1: build store + use case.
-    let store = ApiKeyStorePostgres::new(state.db.clone());
-    let usecase = CreateApiKeyUseCase::new(state.db.clone(), store);
-    // Step 2: parse and validate the client id.
+) -> Response {
+    // Step 1: parse and validate the client id.
     let client_id = match uuid::Uuid::parse_str(&client_id) {
         Ok(id) => ClientId(id),
-        Err(_) => return Json(serde_json::json!({ "error": "invalid client_id" })),
+        Err(_) => {
+            return problem(
+                StatusCode::BAD_REQUEST,
+                RFA_REQUEST_MALFORMED,
+                Some("invalid client_id".to_string()),
+                None,
+            );
+        }
     };
-    // Step 3: execute the use case.
-    let result = usecase
-        .execute(CreateApiKeyCommand {
+    // Step 2: execute the use case.
+    let result = crate::application::usecases::create_api_key::CreateApiKeyUseCase::execute(
+        &state.ctx,
+        CreateApiKeyCommand {
             client_id,
             rotate: payload.rotate.unwrap_or(false),
-        })
-        .await;
-    // Step 4: map the output to a JSON response.
+        },
+    )
+    .await;
+    // Step 3: map the output to a JSON response.
     match result {
-        Ok(out) => Json(serde_json::json!({
-            "api_key": out.api_key,
-            "key_id": out.key_id.to_string(),
-            "created_at": out.created_at.format(&Rfc3339).unwrap_or_default(),
-            "expires_at": out.expires_at.map(|t| t.format(&Rfc3339).unwrap_or_default()),
-            "key_prefix": out.key_prefix,
-        })),
-        Err(_) => Json(serde_json::json!({ "error": "storage unavailable" })),
+        Ok(out) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "api_key": out.api_key,
+                "key_id": out.key_id.to_string(),
+                "created_at": out.created_at.format(&Rfc3339).unwrap_or_default(),
+                "expires_at": out.expires_at.map(|t| t.format(&Rfc3339).unwrap_or_default()),
+                "key_prefix": out.key_prefix,
+            })),
+        )
+            .into_response(),
+        Err(crate::application::shared::api_key_types::ApiKeyUseCaseError::NotFound) => problem(
+            StatusCode::NOT_FOUND,
+            RFA_JOB_NOT_FOUND,
+            Some("client not found".to_string()),
+            None,
+        ),
+        Err(_) => problem(
+            StatusCode::SERVICE_UNAVAILABLE,
+            RFA_STORAGE_DB_ERROR,
+            Some("storage unavailable".to_string()),
+            None,
+        ),
     }
 }
 
 /// Rotates the client's API key and returns the new key.
-async fn renew_key(
-    State(state): State<AppState>,
-    Path(client_id): Path<String>,
-) -> Json<serde_json::Value> {
-    // Step 1: build store + use case.
-    let store = ApiKeyStorePostgres::new(state.db.clone());
-    let usecase = RenewApiKeyUseCase::new(state.db.clone(), store);
-    // Step 2: parse and validate the client id.
+async fn renew_key(State(state): State<AppState>, Path(client_id): Path<String>) -> Response {
+    // Step 1: parse and validate the client id.
     let client_id = match uuid::Uuid::parse_str(&client_id) {
         Ok(id) => ClientId(id),
-        Err(_) => return Json(serde_json::json!({ "error": "invalid client_id" })),
+        Err(_) => {
+            return problem(
+                StatusCode::BAD_REQUEST,
+                RFA_REQUEST_MALFORMED,
+                Some("invalid client_id".to_string()),
+                None,
+            );
+        }
     };
-    // Step 3: execute the use case.
-    let result = usecase.execute(RenewApiKeyCommand { client_id }).await;
-    // Step 4: map the output to a JSON response.
+    // Step 2: execute the use case.
+    let result = crate::application::usecases::renew_api_key::RenewApiKeyUseCase::execute(
+        &state.ctx,
+        RenewApiKeyCommand { client_id },
+    )
+    .await;
+    // Step 3: map the output to a JSON response.
     match result {
-        Ok(out) => Json(serde_json::json!({
-            "api_key": out.api_key,
-            "key_id": out.key_id.to_string(),
-            "created_at": out.created_at.format(&Rfc3339).unwrap_or_default(),
-            "expires_at": out.expires_at.map(|t| t.format(&Rfc3339).unwrap_or_default()),
-            "key_prefix": out.key_prefix,
-        })),
-        Err(_) => Json(serde_json::json!({ "error": "storage unavailable" })),
+        Ok(out) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "api_key": out.api_key,
+                "key_id": out.key_id.to_string(),
+                "created_at": out.created_at.format(&Rfc3339).unwrap_or_default(),
+                "expires_at": out.expires_at.map(|t| t.format(&Rfc3339).unwrap_or_default()),
+                "key_prefix": out.key_prefix,
+            })),
+        )
+            .into_response(),
+        Err(crate::application::shared::api_key_types::ApiKeyUseCaseError::NotFound) => problem(
+            StatusCode::NOT_FOUND,
+            RFA_JOB_NOT_FOUND,
+            Some("client not found".to_string()),
+            None,
+        ),
+        Err(_) => problem(
+            StatusCode::SERVICE_UNAVAILABLE,
+            RFA_STORAGE_DB_ERROR,
+            Some("storage unavailable".to_string()),
+            None,
+        ),
     }
 }
 
@@ -88,19 +133,42 @@ async fn revoke_key(
     State(state): State<AppState>,
     Path(_client_id): Path<String>,
     Json(payload): Json<RevokeApiKeyRequest>,
-) -> Json<serde_json::Value> {
-    // Step 1: build store + use case.
-    let store = ApiKeyStorePostgres::new(state.db.clone());
-    let usecase = RevokeApiKeyUseCase::new(state.db.clone(), store);
-    // Step 2: parse and validate the key id.
+) -> Response {
+    // Step 1: parse and validate the key id.
     let key_id = match uuid::Uuid::parse_str(&payload.key_id) {
         Ok(id) => id,
-        Err(_) => return Json(serde_json::json!({ "error": "invalid key_id" })),
+        Err(_) => {
+            return problem(
+                StatusCode::BAD_REQUEST,
+                RFA_REQUEST_MALFORMED,
+                Some("invalid key_id".to_string()),
+                None,
+            );
+        }
     };
-    // Step 3: execute the use case and return status.
-    let result = usecase.execute(RevokeApiKeyCommand { key_id }).await;
+    // Step 2: execute the use case and return status.
+    let result = crate::application::usecases::revoke_api_key::RevokeApiKeyUseCase::execute(
+        &state.ctx,
+        RevokeApiKeyCommand { key_id },
+    )
+    .await;
     match result {
-        Ok(out) => Json(serde_json::json!({ "revoked": out.revoked })),
-        Err(_) => Json(serde_json::json!({ "error": "storage unavailable" })),
+        Ok(out) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "revoked": out.revoked })),
+        )
+            .into_response(),
+        Err(crate::application::shared::api_key_types::ApiKeyUseCaseError::NotFound) => problem(
+            StatusCode::NOT_FOUND,
+            RFA_JOB_NOT_FOUND,
+            Some("key not found".to_string()),
+            None,
+        ),
+        Err(_) => problem(
+            StatusCode::SERVICE_UNAVAILABLE,
+            RFA_STORAGE_DB_ERROR,
+            Some("storage unavailable".to_string()),
+            None,
+        ),
     }
 }

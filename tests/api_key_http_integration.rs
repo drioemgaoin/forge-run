@@ -1,9 +1,12 @@
 use axum::body::Body;
 use axum::body::to_bytes;
 use axum::http::{Request, StatusCode};
+use forge_run::application::context::AppContext;
 use forge_run::config::Settings;
+use forge_run::domain::services::job_lifecycle::JobLifecycle;
 use forge_run::infrastructure::db::postgres::PostgresDatabase;
 use forge_run::infrastructure::db::postgres::client_store_postgres::ClientStorePostgres;
+use forge_run::infrastructure::db::repositories::Repositories;
 use forge_run::infrastructure::db::stores::client_store::ClientStore;
 use forge_run::interface::http;
 use forge_run::interface::http::state::AppState;
@@ -18,8 +21,11 @@ fn test_db_url() -> Option<String> {
 async fn setup_state() -> Option<(AppState, Arc<PostgresDatabase>)> {
     let url = test_db_url()?;
     let db = Arc::new(PostgresDatabase::connect(&url).await.ok()?);
+    let repos = Repositories::postgres(db.clone());
+    let lifecycle = JobLifecycle::new(repos.clone());
+    let ctx = AppContext::new(repos, Arc::new(lifecycle));
     let state = AppState {
-        db: db.clone(),
+        ctx: Arc::new(ctx),
         settings: Settings {
             server: forge_run::config::Server {
                 host: "127.0.0.1".to_string(),

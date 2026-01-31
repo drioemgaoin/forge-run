@@ -1,17 +1,13 @@
 // Use case: queue_due_jobs.
 
+use crate::application::context::AppContext;
 use crate::domain::entities::event::Event;
 use crate::domain::entities::job::Job;
-use crate::domain::services::job_lifecycle::{JobLifecycleError, JobLifecycleService};
+use crate::domain::services::job_lifecycle::JobLifecycleError;
 use crate::domain::value_objects::timestamps::Timestamp;
-use crate::infrastructure::db::dto::JobRow;
-use crate::infrastructure::db::stores::job_store::JobStore;
 
 /// Moves due deferred jobs into the queue.
-pub struct QueueDueJobsUseCase<S: JobStore, L: JobLifecycleService> {
-    pub job_store: S,
-    pub lifecycle: L,
-}
+pub struct QueueDueJobsUseCase;
 
 #[derive(Debug)]
 pub enum QueueDueJobsError {
@@ -25,17 +21,18 @@ pub struct QueueDueJobsResult {
     pub events: Vec<Event>,
 }
 
-impl<S: JobStore + Send + Sync, L: JobLifecycleService + Send + Sync> QueueDueJobsUseCase<S, L> {
+impl QueueDueJobsUseCase {
     /// Find due jobs and move them to `Queued` with events.
     pub async fn execute(
-        &self,
+        ctx: &AppContext,
         now: Timestamp,
         limit: u32,
     ) -> Result<QueueDueJobsResult, QueueDueJobsError> {
         // Step 1: Load due deferred jobs.
-        let rows = self
-            .job_store
-            .list_due_deferred(now.as_inner(), limit)
+        let rows = ctx
+            .repos
+            .job
+            .list_due_deferred(now, limit)
             .await
             .map_err(|e| QueueDueJobsError::Storage(format!("{e:?}")))?;
 
@@ -43,10 +40,9 @@ impl<S: JobStore + Send + Sync, L: JobLifecycleService + Send + Sync> QueueDueJo
         let mut events = Vec::new();
 
         // Step 2: Transition each job to queued (persist job + event).
-        for row in rows {
-            let mut job = JobRow::into_job(row);
-            let event = self
-                .lifecycle
+        for mut job in rows {
+            let event = ctx
+                .job_lifecycle
                 .transition(&mut job, crate::domain::entities::job::JobState::Queued)
                 .await
                 .map_err(QueueDueJobsError::Transition)?;
@@ -62,6 +58,7 @@ impl<S: JobStore + Send + Sync, L: JobLifecycleService + Send + Sync> QueueDueJo
 #[cfg(test)]
 mod tests {
     use super::QueueDueJobsUseCase;
+    use crate::application::context::test_support::test_context;
     use crate::domain::entities::event::{Event, EventName};
     use crate::domain::entities::job::{Job, JobState};
     use crate::domain::services::job_lifecycle::{JobLifecycleError, JobLifecycleService};
@@ -218,12 +215,17 @@ mod tests {
         let store = DummyStore {
             rows: Mutex::new(vec![sample_row()]),
         };
-        let usecase = QueueDueJobsUseCase {
-            job_store: store,
-            lifecycle: DummyLifecycle,
-        };
+        let mut ctx = test_context();
+        ctx.repos.job = std::sync::Arc::new(
+            crate::infrastructure::db::repositories::job_repository::JobRepository::new(
+                std::sync::Arc::new(store),
+            ),
+        );
+        ctx.job_lifecycle = std::sync::Arc::new(DummyLifecycle);
 
-        let result = usecase.execute(Timestamp::now_utc(), 10).await.unwrap();
+        let result = QueueDueJobsUseCase::execute(&ctx, Timestamp::now_utc(), 10)
+            .await
+            .unwrap();
 
         assert_eq!(result.jobs.len(), 1);
         assert_eq!(result.events.len(), 1);

@@ -1,7 +1,6 @@
 use crate::application::shared::api_key_helpers::{api_key_hash, api_key_prefix};
 use crate::domain::value_objects::ids::ClientId;
-use crate::infrastructure::db::postgres::api_key_store_postgres::ApiKeyStorePostgres;
-use crate::infrastructure::db::stores::api_key_store::ApiKeyStore;
+use crate::interface::http::problem::{RFA_AUTH_INVALID_CREDENTIALS, RFA_INTERNAL, problem};
 use crate::interface::http::state::AppState;
 use axum::body::Body;
 use axum::extract::State;
@@ -16,7 +15,7 @@ pub async fn auth_middleware(
     State(state): State<AppState>,
     mut req: Request<Body>,
     next: Next,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, Response> {
     // Step 1: allow unauthenticated public endpoints.
     let path = req.uri().path();
     let method = req.method().as_str();
@@ -40,27 +39,50 @@ pub async fn auth_middleware(
         .strip_prefix("Bearer ")
         .or_else(|| header_value.strip_prefix("bearer "))
     else {
-        return Err(StatusCode::UNAUTHORIZED);
+        return Err(problem(
+            StatusCode::UNAUTHORIZED,
+            RFA_AUTH_INVALID_CREDENTIALS,
+            Some("missing bearer token".to_string()),
+            Some(path.to_string()),
+        ));
     };
     if raw.is_empty() {
-        return Err(StatusCode::UNAUTHORIZED);
+        return Err(problem(
+            StatusCode::UNAUTHORIZED,
+            RFA_AUTH_INVALID_CREDENTIALS,
+            Some("empty bearer token".to_string()),
+            Some(path.to_string()),
+        ));
     }
 
     // Step 3: compute the stored lookup fields (prefix + hash).
     let prefix = api_key_prefix(raw);
     let hash = api_key_hash(raw);
 
-    // Step 4: build the API key store.
-    let store = ApiKeyStorePostgres::new(state.db.clone());
-    // Step 5: look up an active API key that matches this token.
-    let key = store
+    // Step 4: look up an active API key that matches this token.
+    let key = state
+        .ctx
+        .repos
+        .api_key
         .get_active_by_prefix_and_hash(&prefix, &hash)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| {
+            problem(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                RFA_INTERNAL,
+                Some("failed to verify api key".to_string()),
+                Some(path.to_string()),
+            )
+        })?;
 
     // Step 6: reject invalid keys; otherwise attach the client id for handlers.
     let Some(key) = key else {
-        return Err(StatusCode::UNAUTHORIZED);
+        return Err(problem(
+            StatusCode::UNAUTHORIZED,
+            RFA_AUTH_INVALID_CREDENTIALS,
+            Some("invalid api key".to_string()),
+            Some(path.to_string()),
+        ));
     };
 
     req.extensions_mut().insert(ClientId(key.client_id));

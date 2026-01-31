@@ -4,13 +4,13 @@ use crate::infrastructure::db::stores::idempotency_key_store::{
 };
 use std::sync::Arc;
 
-pub struct IdempotencyKeyRepository<S: IdempotencyKeyStore> {
-    store: Arc<S>,
+pub struct IdempotencyKeyRepository {
+    store: Arc<dyn IdempotencyKeyStore>,
 }
 
-impl<S: IdempotencyKeyStore> IdempotencyKeyRepository<S> {
+impl IdempotencyKeyRepository {
     /// Build a repository that uses the given store implementation.
-    pub fn new(store: Arc<S>) -> Self {
+    pub fn new(store: Arc<dyn IdempotencyKeyStore>) -> Self {
         Self { store }
     }
 
@@ -45,6 +45,44 @@ impl<S: IdempotencyKeyStore> IdempotencyKeyRepository<S> {
     ) -> Result<(), IdempotencyKeyRepositoryError> {
         self.store
             .delete(client_id, idempotency_key)
+            .await
+            .map_err(|_| IdempotencyKeyRepositoryError::StorageUnavailable)
+    }
+
+    /// Fetch an idempotency entry by client + key inside an existing transaction.
+    pub async fn get_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        client_id: uuid::Uuid,
+        idempotency_key: &str,
+    ) -> Result<Option<IdempotencyKeyRow>, IdempotencyKeyRepositoryError> {
+        self.store
+            .get_tx(tx, client_id, idempotency_key)
+            .await
+            .map_err(|_| IdempotencyKeyRepositoryError::StorageUnavailable)
+    }
+
+    /// Create an idempotency entry inside an existing transaction.
+    pub async fn insert_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        row: &IdempotencyKeyRow,
+    ) -> Result<IdempotencyKeyRow, IdempotencyKeyRepositoryError> {
+        self.store
+            .insert_tx(tx, row)
+            .await
+            .map_err(|_| IdempotencyKeyRepositoryError::StorageUnavailable)
+    }
+
+    /// Delete an idempotency entry inside an existing transaction.
+    pub async fn delete_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        client_id: uuid::Uuid,
+        idempotency_key: &str,
+    ) -> Result<(), IdempotencyKeyRepositoryError> {
+        self.store
+            .delete_tx(tx, client_id, idempotency_key)
             .await
             .map_err(|_| IdempotencyKeyRepositoryError::StorageUnavailable)
     }

@@ -1,5 +1,6 @@
 mod auth;
 pub mod dto;
+pub mod problem;
 pub mod routes;
 pub mod state;
 
@@ -11,6 +12,9 @@ pub fn app(state: AppState) -> Router {
     Router::new()
         .merge(routes::client::router())
         .merge(routes::api_key::router())
+        .merge(routes::job::router())
+        .merge(routes::report::router())
+        .merge(routes::webhook::router())
         .merge(routes::health::router::<AppState>())
         .layer(middleware::from_fn_with_state(
             state.clone(),

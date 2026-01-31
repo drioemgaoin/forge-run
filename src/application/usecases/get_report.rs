@@ -1,16 +1,12 @@
 // Use case: get_report.
 
+use crate::application::context::AppContext;
 use crate::domain::entities::report::{EventSnapshot, Report};
 use crate::domain::value_objects::ids::JobId;
-use crate::infrastructure::db::dto::{EventRow, ReportRow};
-use crate::infrastructure::db::stores::event_store::EventStore;
-use crate::infrastructure::db::stores::report_store::ReportStore;
+use crate::infrastructure::db::dto::EventRow;
 
 /// Fetches a job report and its events.
-pub struct GetReportUseCase<R: ReportStore, E: EventStore> {
-    pub report_store: R,
-    pub event_store: E,
-}
+pub struct GetReportUseCase;
 
 #[derive(Debug)]
 pub enum GetReportError {
@@ -18,23 +14,25 @@ pub enum GetReportError {
     Storage(String),
 }
 
-impl<R: ReportStore + Send + Sync, E: EventStore + Send + Sync> GetReportUseCase<R, E> {
+impl GetReportUseCase {
     /// Get a report by job ID (including events).
-    pub async fn execute(&self, job_id: JobId) -> Result<Report, GetReportError> {
+    pub async fn execute(ctx: &AppContext, job_id: JobId) -> Result<Report, GetReportError> {
         // Step 1: Fetch the report row.
-        let report_row = self
-            .report_store
-            .get(job_id.0)
+        let report = ctx
+            .repos
+            .report
+            .get(job_id)
             .await
             .map_err(|e| GetReportError::Storage(format!("{e:?}")))?;
 
         // Step 2: Return NotFound when missing.
-        let report_row = report_row.ok_or(GetReportError::NotFound)?;
+        let report = report.ok_or(GetReportError::NotFound)?;
 
         // Step 3: Fetch all events for the job.
-        let event_rows = self
-            .event_store
-            .list_by_job_id(job_id.0)
+        let event_rows = ctx
+            .repos
+            .event
+            .list_by_job_id(job_id)
             .await
             .map_err(|e| GetReportError::Storage(format!("{e:?}")))?;
 
@@ -51,13 +49,16 @@ impl<R: ReportStore + Send + Sync, E: EventStore + Send + Sync> GetReportUseCase
             .collect::<Vec<_>>();
 
         // Step 5: Return report with events.
-        Ok(ReportRow::into_report_with_events(report_row, events))
+        let mut report = report;
+        report.events = events;
+        Ok(report)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{GetReportError, GetReportUseCase};
+    use crate::application::context::test_support::test_context;
     use crate::domain::entities::event::EventName;
     use crate::domain::entities::job::JobOutcome;
     use crate::domain::value_objects::ids::JobId;
@@ -245,12 +246,19 @@ mod tests {
             rows: Mutex::new(vec![event_row]),
         };
 
-        let usecase = GetReportUseCase {
-            report_store,
-            event_store,
-        };
+        let mut ctx = test_context();
+        ctx.repos.report = std::sync::Arc::new(
+            crate::infrastructure::db::repositories::report_repository::ReportRepository::new(
+                std::sync::Arc::new(report_store),
+            ),
+        );
+        ctx.repos.event = std::sync::Arc::new(
+            crate::infrastructure::db::repositories::event_repository::EventRepository::new(
+                std::sync::Arc::new(event_store),
+            ),
+        );
 
-        let report = usecase.execute(job_id).await.unwrap();
+        let report = GetReportUseCase::execute(&ctx, job_id).await.unwrap();
 
         assert_eq!(report.job_id, job_id);
         assert_eq!(report.outcome, JobOutcome::Success);
@@ -267,12 +275,19 @@ mod tests {
             rows: Mutex::new(Vec::new()),
         };
 
-        let usecase = GetReportUseCase {
-            report_store,
-            event_store,
-        };
+        let mut ctx = test_context();
+        ctx.repos.report = std::sync::Arc::new(
+            crate::infrastructure::db::repositories::report_repository::ReportRepository::new(
+                std::sync::Arc::new(report_store),
+            ),
+        );
+        ctx.repos.event = std::sync::Arc::new(
+            crate::infrastructure::db::repositories::event_repository::EventRepository::new(
+                std::sync::Arc::new(event_store),
+            ),
+        );
 
-        let result = usecase.execute(JobId::new()).await;
+        let result = GetReportUseCase::execute(&ctx, JobId::new()).await;
 
         assert!(matches!(result, Err(GetReportError::NotFound)));
     }

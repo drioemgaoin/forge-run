@@ -4,13 +4,13 @@ use crate::infrastructure::db::dto::ClientRow;
 use crate::infrastructure::db::stores::client_store::{ClientRepositoryError, ClientStore};
 use std::sync::Arc;
 
-pub struct ClientRepository<S: ClientStore> {
-    store: Arc<S>,
+pub struct ClientRepository {
+    store: Arc<dyn ClientStore>,
 }
 
-impl<S: ClientStore> ClientRepository<S> {
+impl ClientRepository {
     /// Build a repository that uses the given store implementation.
-    pub fn new(store: Arc<S>) -> Self {
+    pub fn new(store: Arc<dyn ClientStore>) -> Self {
         Self { store }
     }
 
