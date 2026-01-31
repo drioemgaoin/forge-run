@@ -2,6 +2,7 @@ use crate::application::shared::api_key_helpers::{api_key_hash, api_key_prefix};
 use crate::domain::value_objects::ids::ClientId;
 use crate::interface::http::problem::{RFA_AUTH_INVALID_CREDENTIALS, RFA_INTERNAL, problem};
 use crate::interface::http::state::AppState;
+use crate::interface::http::trace::TraceId;
 use axum::body::Body;
 use axum::extract::State;
 use axum::http::{Request, StatusCode, header};
@@ -16,6 +17,7 @@ pub async fn auth_middleware(
     mut req: Request<Body>,
     next: Next,
 ) -> Result<Response, Response> {
+    let trace_id = req.extensions().get::<TraceId>().map(|t| t.0.clone());
     // Step 1: allow unauthenticated public endpoints.
     let path = req.uri().path();
     let method = req.method().as_str();
@@ -44,6 +46,7 @@ pub async fn auth_middleware(
             RFA_AUTH_INVALID_CREDENTIALS,
             Some("missing bearer token".to_string()),
             Some(path.to_string()),
+            trace_id.clone(),
         ));
     };
     if raw.is_empty() {
@@ -52,6 +55,7 @@ pub async fn auth_middleware(
             RFA_AUTH_INVALID_CREDENTIALS,
             Some("empty bearer token".to_string()),
             Some(path.to_string()),
+            trace_id.clone(),
         ));
     }
 
@@ -72,6 +76,7 @@ pub async fn auth_middleware(
                 RFA_INTERNAL,
                 Some("failed to verify api key".to_string()),
                 Some(path.to_string()),
+                trace_id.clone(),
             )
         })?;
 
@@ -82,6 +87,7 @@ pub async fn auth_middleware(
             RFA_AUTH_INVALID_CREDENTIALS,
             Some("invalid api key".to_string()),
             Some(path.to_string()),
+            trace_id,
         ));
     };
 

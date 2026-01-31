@@ -7,8 +7,9 @@ use crate::interface::http::problem::{
     RFA_JOB_NOT_FOUND, RFA_REQUEST_MALFORMED, RFA_STORAGE_DB_ERROR, problem,
 };
 use crate::interface::http::state::AppState;
+use crate::interface::http::trace::TraceId;
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -20,7 +21,12 @@ pub fn router() -> axum::Router<AppState> {
 }
 
 /// Fetches a job report.
-async fn get_report(State(state): State<AppState>, Path(job_id): Path<String>) -> Response {
+async fn get_report(
+    State(state): State<AppState>,
+    Extension(trace_id): Extension<TraceId>,
+    Path(job_id): Path<String>,
+) -> Response {
+    let trace_id = Some(trace_id.0.clone());
     // Step 1: Parse the job id.
     let job_id = match uuid::Uuid::parse_str(&job_id) {
         Ok(id) => JobId(id),
@@ -30,6 +36,7 @@ async fn get_report(State(state): State<AppState>, Path(job_id): Path<String>) -
                 RFA_REQUEST_MALFORMED,
                 Some("invalid job_id".to_string()),
                 None,
+                trace_id,
             );
         }
     };
@@ -74,12 +81,14 @@ async fn get_report(State(state): State<AppState>, Path(job_id): Path<String>) -
             RFA_JOB_NOT_FOUND,
             Some("report not found".to_string()),
             None,
+            trace_id.clone(),
         ),
         Err(GetReportError::Storage(_)) => problem(
             StatusCode::SERVICE_UNAVAILABLE,
             RFA_STORAGE_DB_ERROR,
             Some("storage unavailable".to_string()),
             None,
+            trace_id,
         ),
     }
 }

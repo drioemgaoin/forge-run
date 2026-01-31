@@ -70,11 +70,13 @@ async fn given_invalid_client_id_when_create_key_should_return_problem_details()
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert!(is_problem_json(response.headers().get("content-type")));
+    assert!(response.headers().get("x-request-id").is_some());
     let json = response_json(response).await;
     assert_eq!(
         json.get("code"),
         Some(&Value::String("RFA_REQUEST_MALFORMED".to_string()))
     );
+    assert!(json.get("trace_id").is_some());
 }
 
 #[tokio::test]
@@ -97,9 +99,11 @@ async fn given_invalid_job_type_when_submit_should_return_problem_details() {
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert!(is_problem_json(response.headers().get("content-type")));
+    assert!(response.headers().get("x-request-id").is_some());
     let json = response_json(response).await;
     assert_eq!(
         json.get("code"),
         Some(&Value::String("RFA_REQUEST_MALFORMED".to_string()))
     );
+    assert!(json.get("trace_id").is_some());
 }

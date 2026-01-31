@@ -15,6 +15,7 @@ use crate::interface::http::problem::{
     RFA_REQUEST_MALFORMED, RFA_STORAGE_DB_ERROR, problem,
 };
 use crate::interface::http::state::AppState;
+use crate::interface::http::trace::TraceId;
 use axum::Json;
 use axum::extract::{Extension, Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -36,9 +37,11 @@ pub fn router() -> axum::Router<AppState> {
 async fn submit_job(
     State(state): State<AppState>,
     Extension(client_id): Extension<ClientId>,
+    Extension(trace_id): Extension<TraceId>,
     headers: HeaderMap,
     Json(payload): Json<SubmitJobRequest>,
 ) -> Response {
+    let trace_id = Some(trace_id.0.clone());
     // Step 1: Parse and validate the job type.
     let job_type = payload.r#type.to_uppercase();
     let is_deferred = job_type == "DEFERRED";
@@ -49,6 +52,7 @@ async fn submit_job(
             RFA_REQUEST_MALFORMED,
             Some("invalid job type".to_string()),
             None,
+            trace_id,
         );
     }
 
@@ -62,6 +66,7 @@ async fn submit_job(
                     RFA_REQUEST_MALFORMED,
                     Some("invalid execution_at timestamp".to_string()),
                     None,
+                    trace_id.clone(),
                 );
             }
         },
@@ -75,6 +80,7 @@ async fn submit_job(
             RFA_JOB_VALIDATION_FAILED,
             Some("execution_at is required for deferred jobs".to_string()),
             None,
+            trace_id.clone(),
         );
     }
     if is_execute && execution_at.is_some() {
@@ -83,6 +89,7 @@ async fn submit_job(
             RFA_JOB_VALIDATION_FAILED,
             Some("execution_at not allowed for execute jobs".to_string()),
             None,
+            trace_id.clone(),
         );
     }
 
@@ -99,6 +106,7 @@ async fn submit_job(
                 RFA_EXEC_IDEMPOTENCY_CONFLICT,
                 Some("idempotency key mismatch".to_string()),
                 None,
+                trace_id.clone(),
             );
         }
         (Some(body_key), _) => Some(body_key),
@@ -114,6 +122,7 @@ async fn submit_job(
                 RFA_JOB_VALIDATION_FAILED,
                 Some("work_kind is required".to_string()),
                 None,
+                trace_id.clone(),
             );
         }
     };
@@ -151,6 +160,7 @@ async fn submit_job(
             RFA_JOB_VALIDATION_FAILED,
             Some("job validation failed".to_string()),
             None,
+            trace_id.clone(),
         ),
         Err(crate::domain::services::job_lifecycle::JobLifecycleError::Storage(msg))
             if msg.contains("idempotency") =>
@@ -160,6 +170,7 @@ async fn submit_job(
                 RFA_EXEC_IDEMPOTENCY_CONFLICT,
                 Some(msg),
                 None,
+                trace_id.clone(),
             )
         }
         Err(_) => problem(
@@ -167,12 +178,18 @@ async fn submit_job(
             RFA_STORAGE_DB_ERROR,
             Some("storage unavailable".to_string()),
             None,
+            trace_id,
         ),
     }
 }
 
 /// Cancels a job and returns its updated state.
-async fn cancel_job(State(state): State<AppState>, Path(job_id): Path<String>) -> Response {
+async fn cancel_job(
+    State(state): State<AppState>,
+    Extension(trace_id): Extension<TraceId>,
+    Path(job_id): Path<String>,
+) -> Response {
+    let trace_id = Some(trace_id.0.clone());
     // Step 1: Parse the job id.
     let job_id = match uuid::Uuid::parse_str(&job_id) {
         Ok(id) => JobId(id),
@@ -182,6 +199,7 @@ async fn cancel_job(State(state): State<AppState>, Path(job_id): Path<String>) -
                 RFA_REQUEST_MALFORMED,
                 Some("invalid job_id".to_string()),
                 None,
+                trace_id,
             );
         }
     };
@@ -210,24 +228,32 @@ async fn cancel_job(State(state): State<AppState>, Path(job_id): Path<String>) -
             RFA_JOB_NOT_FOUND,
             Some("job not found".to_string()),
             None,
+            trace_id.clone(),
         ),
         Err(CancelJobError::Transition(_)) => problem(
             StatusCode::CONFLICT,
             RFA_JOB_CONFLICT,
             Some("invalid state transition".to_string()),
             None,
+            trace_id.clone(),
         ),
         Err(CancelJobError::Storage(_)) => problem(
             StatusCode::SERVICE_UNAVAILABLE,
             RFA_STORAGE_DB_ERROR,
             Some("storage unavailable".to_string()),
             None,
+            trace_id,
         ),
     }
 }
 
 /// Retries a failed job and returns its updated state.
-async fn retry_job(State(state): State<AppState>, Path(job_id): Path<String>) -> Response {
+async fn retry_job(
+    State(state): State<AppState>,
+    Extension(trace_id): Extension<TraceId>,
+    Path(job_id): Path<String>,
+) -> Response {
+    let trace_id = Some(trace_id.0.clone());
     // Step 1: Parse the job id.
     let job_id = match uuid::Uuid::parse_str(&job_id) {
         Ok(id) => JobId(id),
@@ -237,6 +263,7 @@ async fn retry_job(State(state): State<AppState>, Path(job_id): Path<String>) ->
                 RFA_REQUEST_MALFORMED,
                 Some("invalid job_id".to_string()),
                 None,
+                trace_id,
             );
         }
     };
@@ -265,24 +292,32 @@ async fn retry_job(State(state): State<AppState>, Path(job_id): Path<String>) ->
             RFA_JOB_NOT_FOUND,
             Some("job not found".to_string()),
             None,
+            trace_id.clone(),
         ),
         Err(RetryJobError::InvalidState) | Err(RetryJobError::Transition(_)) => problem(
             StatusCode::CONFLICT,
             RFA_JOB_CONFLICT,
             Some("invalid state transition".to_string()),
             None,
+            trace_id.clone(),
         ),
         Err(RetryJobError::Storage(_)) => problem(
             StatusCode::SERVICE_UNAVAILABLE,
             RFA_STORAGE_DB_ERROR,
             Some("storage unavailable".to_string()),
             None,
+            trace_id,
         ),
     }
 }
 
 /// Fetches a job and returns its details.
-async fn get_job(State(state): State<AppState>, Path(job_id): Path<String>) -> Response {
+async fn get_job(
+    State(state): State<AppState>,
+    Extension(trace_id): Extension<TraceId>,
+    Path(job_id): Path<String>,
+) -> Response {
+    let trace_id = Some(trace_id.0.clone());
     // Step 1: Parse the job id.
     let job_id = match uuid::Uuid::parse_str(&job_id) {
         Ok(id) => JobId(id),
@@ -292,6 +327,7 @@ async fn get_job(State(state): State<AppState>, Path(job_id): Path<String>) -> R
                 RFA_REQUEST_MALFORMED,
                 Some("invalid job_id".to_string()),
                 None,
+                trace_id,
             );
         }
     };
@@ -330,12 +366,14 @@ async fn get_job(State(state): State<AppState>, Path(job_id): Path<String>) -> R
             RFA_JOB_NOT_FOUND,
             Some("job not found".to_string()),
             None,
+            trace_id.clone(),
         ),
         Err(GetJobError::Storage(_)) => problem(
             StatusCode::SERVICE_UNAVAILABLE,
             RFA_STORAGE_DB_ERROR,
             Some("storage unavailable".to_string()),
             None,
+            trace_id,
         ),
     }
 }

@@ -2,6 +2,7 @@
 
 use crate::interface::http::problem::{RFA_STORAGE_DB_ERROR, problem};
 use crate::interface::http::state::AppState;
+use crate::interface::http::trace::TraceId;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::{Json, Router, routing::post};
@@ -14,7 +15,11 @@ pub fn router() -> Router<AppState> {
 /// Creates a new client and returns its identifier.
 ///
 /// This is a public endpoint used during onboarding.
-async fn create_client(state: axum::extract::State<AppState>) -> Response {
+async fn create_client(
+    state: axum::extract::State<AppState>,
+    axum::extract::Extension(trace_id): axum::extract::Extension<TraceId>,
+) -> Response {
+    let trace_id = Some(trace_id.0.clone());
     // Step 1: Run the use case.
     let result =
         crate::application::usecases::create_client::CreateClientUseCase::execute(&state.ctx).await;
@@ -31,6 +36,7 @@ async fn create_client(state: axum::extract::State<AppState>) -> Response {
             RFA_STORAGE_DB_ERROR,
             Some("storage unavailable".to_string()),
             None,
+            trace_id,
         ),
     }
 }

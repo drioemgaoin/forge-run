@@ -13,8 +13,9 @@ use crate::interface::http::problem::{
     RFA_JOB_CONFLICT, RFA_JOB_NOT_FOUND, RFA_REQUEST_MALFORMED, RFA_STORAGE_DB_ERROR, problem,
 };
 use crate::interface::http::state::AppState;
+use crate::interface::http::trace::TraceId;
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, post};
@@ -30,8 +31,10 @@ pub fn router() -> axum::Router<AppState> {
 /// Registers a webhook.
 async fn register_webhook(
     State(state): State<AppState>,
+    Extension(trace_id): Extension<TraceId>,
     Json(payload): Json<RegisterWebhookRequest>,
 ) -> Response {
+    let trace_id = Some(trace_id.0.clone());
     // Step 1: Validate payload basics.
     if payload.url.trim().is_empty() {
         return problem(
@@ -39,6 +42,7 @@ async fn register_webhook(
             RFA_REQUEST_MALFORMED,
             Some("url is required".to_string()),
             None,
+            trace_id.clone(),
         );
     }
     if payload.events.is_empty() {
@@ -47,6 +51,7 @@ async fn register_webhook(
             RFA_REQUEST_MALFORMED,
             Some("events list is required".to_string()),
             None,
+            trace_id.clone(),
         );
     }
 
@@ -74,12 +79,14 @@ async fn register_webhook(
             RFA_JOB_CONFLICT,
             Some("webhook already exists".to_string()),
             None,
+            trace_id.clone(),
         ),
         Err(_) => problem(
             StatusCode::SERVICE_UNAVAILABLE,
             RFA_STORAGE_DB_ERROR,
             Some("storage unavailable".to_string()),
             None,
+            trace_id,
         ),
     }
 }
@@ -87,8 +94,10 @@ async fn register_webhook(
 /// Unregisters a webhook.
 async fn unregister_webhook(
     State(state): State<AppState>,
+    Extension(trace_id): Extension<TraceId>,
     Path(webhook_id): Path<String>,
 ) -> Response {
+    let trace_id = Some(trace_id.0.clone());
     // Step 1: Parse webhook id.
     let webhook_id = match uuid::Uuid::parse_str(&webhook_id) {
         Ok(id) => id,
@@ -98,6 +107,7 @@ async fn unregister_webhook(
                 RFA_REQUEST_MALFORMED,
                 Some("invalid webhook_id".to_string()),
                 None,
+                trace_id,
             );
         }
     };
@@ -120,12 +130,14 @@ async fn unregister_webhook(
             RFA_JOB_NOT_FOUND,
             Some("webhook not found".to_string()),
             None,
+            trace_id.clone(),
         ),
         Err(UnregisterWebhookError::Storage(_)) => problem(
             StatusCode::SERVICE_UNAVAILABLE,
             RFA_STORAGE_DB_ERROR,
             Some("storage unavailable".to_string()),
             None,
+            trace_id,
         ),
     }
 }

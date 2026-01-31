@@ -9,7 +9,8 @@ use crate::interface::http::problem::{
     RFA_JOB_NOT_FOUND, RFA_REQUEST_MALFORMED, RFA_STORAGE_DB_ERROR, problem,
 };
 use crate::interface::http::state::AppState;
-use axum::extract::{Path, State};
+use crate::interface::http::trace::TraceId;
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::{Json, Router, routing::post};
@@ -29,8 +30,10 @@ pub fn router() -> Router<AppState> {
 async fn create_key(
     State(state): State<AppState>,
     Path(client_id): Path<String>,
+    Extension(trace_id): Extension<TraceId>,
     Json(payload): Json<CreateApiKeyRequest>,
 ) -> Response {
+    let trace_id = Some(trace_id.0.clone());
     // Step 1: parse and validate the client id.
     let client_id = match uuid::Uuid::parse_str(&client_id) {
         Ok(id) => ClientId(id),
@@ -40,6 +43,7 @@ async fn create_key(
                 RFA_REQUEST_MALFORMED,
                 Some("invalid client_id".to_string()),
                 None,
+                trace_id,
             );
         }
     };
@@ -70,18 +74,25 @@ async fn create_key(
             RFA_JOB_NOT_FOUND,
             Some("client not found".to_string()),
             None,
+            trace_id.clone(),
         ),
         Err(_) => problem(
             StatusCode::SERVICE_UNAVAILABLE,
             RFA_STORAGE_DB_ERROR,
             Some("storage unavailable".to_string()),
             None,
+            trace_id,
         ),
     }
 }
 
 /// Rotates the client's API key and returns the new key.
-async fn renew_key(State(state): State<AppState>, Path(client_id): Path<String>) -> Response {
+async fn renew_key(
+    State(state): State<AppState>,
+    Path(client_id): Path<String>,
+    Extension(trace_id): Extension<TraceId>,
+) -> Response {
+    let trace_id = Some(trace_id.0.clone());
     // Step 1: parse and validate the client id.
     let client_id = match uuid::Uuid::parse_str(&client_id) {
         Ok(id) => ClientId(id),
@@ -91,6 +102,7 @@ async fn renew_key(State(state): State<AppState>, Path(client_id): Path<String>)
                 RFA_REQUEST_MALFORMED,
                 Some("invalid client_id".to_string()),
                 None,
+                trace_id,
             );
         }
     };
@@ -118,12 +130,14 @@ async fn renew_key(State(state): State<AppState>, Path(client_id): Path<String>)
             RFA_JOB_NOT_FOUND,
             Some("client not found".to_string()),
             None,
+            trace_id.clone(),
         ),
         Err(_) => problem(
             StatusCode::SERVICE_UNAVAILABLE,
             RFA_STORAGE_DB_ERROR,
             Some("storage unavailable".to_string()),
             None,
+            trace_id,
         ),
     }
 }
@@ -132,8 +146,10 @@ async fn renew_key(State(state): State<AppState>, Path(client_id): Path<String>)
 async fn revoke_key(
     State(state): State<AppState>,
     Path(_client_id): Path<String>,
+    Extension(trace_id): Extension<TraceId>,
     Json(payload): Json<RevokeApiKeyRequest>,
 ) -> Response {
+    let trace_id = Some(trace_id.0.clone());
     // Step 1: parse and validate the key id.
     let key_id = match uuid::Uuid::parse_str(&payload.key_id) {
         Ok(id) => id,
@@ -143,6 +159,7 @@ async fn revoke_key(
                 RFA_REQUEST_MALFORMED,
                 Some("invalid key_id".to_string()),
                 None,
+                trace_id,
             );
         }
     };
@@ -163,12 +180,14 @@ async fn revoke_key(
             RFA_JOB_NOT_FOUND,
             Some("key not found".to_string()),
             None,
+            trace_id.clone(),
         ),
         Err(_) => problem(
             StatusCode::SERVICE_UNAVAILABLE,
             RFA_STORAGE_DB_ERROR,
             Some("storage unavailable".to_string()),
             None,
+            trace_id,
         ),
     }
 }
