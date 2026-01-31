@@ -1,11 +1,10 @@
 // Use case: unregister_webhook.
 
-use crate::infrastructure::db::stores::webhook_store::{WebhookRepositoryError, WebhookStore};
+use crate::application::context::AppContext;
+use crate::infrastructure::db::stores::webhook_store::WebhookRepositoryError;
 
 /// Removes a previously registered webhook.
-pub struct UnregisterWebhookUseCase<S: WebhookStore> {
-    pub store: S,
-}
+pub struct UnregisterWebhookUseCase;
 
 #[derive(Debug)]
 pub enum UnregisterWebhookError {
@@ -23,14 +22,14 @@ pub struct UnregisterWebhookResult {
     pub deleted: bool,
 }
 
-impl<S: WebhookStore + Send + Sync> UnregisterWebhookUseCase<S> {
+impl UnregisterWebhookUseCase {
     /// Unregister a webhook by ID.
     pub async fn execute(
-        &self,
+        ctx: &AppContext,
         cmd: UnregisterWebhookCommand,
     ) -> Result<UnregisterWebhookResult, UnregisterWebhookError> {
         // Step 1: Attempt delete in storage.
-        let result = self.store.delete(cmd.webhook_id).await;
+        let result = ctx.repos.webhook.delete(cmd.webhook_id).await;
 
         // Step 2: Map storage errors to use case errors.
         match result {
@@ -44,6 +43,7 @@ impl<S: WebhookStore + Send + Sync> UnregisterWebhookUseCase<S> {
 #[cfg(test)]
 mod tests {
     use super::{UnregisterWebhookCommand, UnregisterWebhookError, UnregisterWebhookUseCase};
+    use crate::application::context::test_support::test_context;
     use crate::infrastructure::db::stores::webhook_store::{WebhookRepositoryError, WebhookStore};
     use async_trait::async_trait;
 
@@ -76,14 +76,21 @@ mod tests {
     #[tokio::test]
     async fn given_existing_webhook_when_execute_should_delete() {
         let store = DummyStore { result: Ok(()) };
-        let usecase = UnregisterWebhookUseCase { store };
+        let mut ctx = test_context();
+        ctx.repos.webhook = std::sync::Arc::new(
+            crate::infrastructure::db::repositories::webhook_repository::WebhookRepository::new(
+                std::sync::Arc::new(store),
+            ),
+        );
 
-        let result = usecase
-            .execute(UnregisterWebhookCommand {
+        let result = UnregisterWebhookUseCase::execute(
+            &ctx,
+            UnregisterWebhookCommand {
                 webhook_id: uuid::Uuid::new_v4(),
-            })
-            .await
-            .unwrap();
+            },
+        )
+        .await
+        .unwrap();
 
         assert!(result.deleted);
     }
@@ -93,13 +100,20 @@ mod tests {
         let store = DummyStore {
             result: Err(WebhookRepositoryError::NotFound),
         };
-        let usecase = UnregisterWebhookUseCase { store };
+        let mut ctx = test_context();
+        ctx.repos.webhook = std::sync::Arc::new(
+            crate::infrastructure::db::repositories::webhook_repository::WebhookRepository::new(
+                std::sync::Arc::new(store),
+            ),
+        );
 
-        let result = usecase
-            .execute(UnregisterWebhookCommand {
+        let result = UnregisterWebhookUseCase::execute(
+            &ctx,
+            UnregisterWebhookCommand {
                 webhook_id: uuid::Uuid::new_v4(),
-            })
-            .await;
+            },
+        )
+        .await;
 
         assert!(matches!(result, Err(UnregisterWebhookError::NotFound)));
     }

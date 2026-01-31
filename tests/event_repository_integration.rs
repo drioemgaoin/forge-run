@@ -16,7 +16,7 @@ fn test_db_url() -> Option<String> {
     std::env::var("DATABASE_URL").ok()
 }
 
-async fn setup_repo() -> Option<EventRepository<EventStorePostgres>> {
+async fn setup_repo() -> Option<EventRepository> {
     let url = test_db_url()?;
     let db = std::sync::Arc::new(PostgresDatabase::connect(&url).await.ok()?);
     let store = EventStorePostgres::new(db);

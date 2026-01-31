@@ -2,13 +2,13 @@ use crate::infrastructure::db::dto::ApiKeyRow;
 use crate::infrastructure::db::stores::api_key_store::{ApiKeyRepositoryError, ApiKeyStore};
 use std::sync::Arc;
 
-pub struct ApiKeyRepository<S: ApiKeyStore> {
-    store: Arc<S>,
+pub struct ApiKeyRepository {
+    store: Arc<dyn ApiKeyStore>,
 }
 
-impl<S: ApiKeyStore> ApiKeyRepository<S> {
+impl ApiKeyRepository {
     /// Build a repository that uses the given store implementation.
-    pub fn new(store: Arc<S>) -> Self {
+    pub fn new(store: Arc<dyn ApiKeyStore>) -> Self {
         Self { store }
     }
 
@@ -46,6 +46,102 @@ impl<S: ApiKeyStore> ApiKeyRepository<S> {
             .await
             .map_err(|_| ApiKeyRepositoryError::StorageUnavailable)
     }
+
+    /// Fetch the active (non-revoked) API key for a client.
+    pub async fn get_active_by_client_id(
+        &self,
+        client_id: uuid::Uuid,
+    ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
+        self.store
+            .get_active_by_client_id(client_id)
+            .await
+            .map_err(|_| ApiKeyRepositoryError::StorageUnavailable)
+    }
+
+    /// Fetch an active API key by prefix+hash (used for auth).
+    pub async fn get_active_by_prefix_and_hash(
+        &self,
+        key_prefix: &str,
+        key_hash: &str,
+    ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
+        self.store
+            .get_active_by_prefix_and_hash(key_prefix, key_hash)
+            .await
+            .map_err(|_| ApiKeyRepositoryError::StorageUnavailable)
+    }
+
+    /// Fetch an API key by its ID inside an existing transaction.
+    pub async fn get_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        key_id: uuid::Uuid,
+    ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
+        self.store
+            .get_tx(tx, key_id)
+            .await
+            .map_err(|_| ApiKeyRepositoryError::StorageUnavailable)
+    }
+
+    /// Create an API key inside an existing transaction and return stored data.
+    pub async fn insert_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        row: &ApiKeyRow,
+    ) -> Result<ApiKeyRow, ApiKeyRepositoryError> {
+        self.store
+            .insert_tx(tx, row)
+            .await
+            .map_err(|_| ApiKeyRepositoryError::StorageUnavailable)
+    }
+
+    /// Update an API key inside an existing transaction and return stored data.
+    pub async fn update_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        row: &ApiKeyRow,
+    ) -> Result<ApiKeyRow, ApiKeyRepositoryError> {
+        self.store
+            .update_tx(tx, row)
+            .await
+            .map_err(|_| ApiKeyRepositoryError::StorageUnavailable)
+    }
+
+    /// Delete an API key by its ID inside an existing transaction.
+    pub async fn delete_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        key_id: uuid::Uuid,
+    ) -> Result<(), ApiKeyRepositoryError> {
+        self.store
+            .delete_tx(tx, key_id)
+            .await
+            .map_err(|_| ApiKeyRepositoryError::StorageUnavailable)
+    }
+
+    /// Fetch the active API key for a client inside an existing transaction.
+    pub async fn get_active_by_client_id_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        client_id: uuid::Uuid,
+    ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
+        self.store
+            .get_active_by_client_id_tx(tx, client_id)
+            .await
+            .map_err(|_| ApiKeyRepositoryError::StorageUnavailable)
+    }
+
+    /// Fetch an active API key by prefix+hash inside an existing transaction.
+    pub async fn get_active_by_prefix_and_hash_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        key_prefix: &str,
+        key_hash: &str,
+    ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
+        self.store
+            .get_active_by_prefix_and_hash_tx(tx, key_prefix, key_hash)
+            .await
+            .map_err(|_| ApiKeyRepositoryError::StorageUnavailable)
+    }
 }
 
 #[cfg(test)]
@@ -63,6 +159,7 @@ mod tests {
         pub deleted: Mutex<Option<uuid::Uuid>>,
         pub get_result: Mutex<Option<Option<ApiKeyRow>>>,
         pub active_result: Mutex<Option<Option<ApiKeyRow>>>,
+        pub auth_result: Mutex<Option<Option<ApiKeyRow>>>,
     }
 
     impl DummyStore {
@@ -73,6 +170,7 @@ mod tests {
                 deleted: Mutex::new(None),
                 get_result: Mutex::new(None),
                 active_result: Mutex::new(None),
+                auth_result: Mutex::new(None),
             }
         }
     }
@@ -107,6 +205,14 @@ mod tests {
             _client_id: uuid::Uuid,
         ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
             Ok(self.active_result.lock().unwrap().clone().unwrap_or(None))
+        }
+
+        async fn get_active_by_prefix_and_hash(
+            &self,
+            _key_prefix: &str,
+            _key_hash: &str,
+        ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
+            Ok(self.auth_result.lock().unwrap().clone().unwrap_or(None))
         }
 
         async fn insert_tx(
@@ -145,6 +251,15 @@ mod tests {
             &self,
             _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
             _client_id: uuid::Uuid,
+        ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
+            Err(ApiKeyRepositoryError::InvalidInput)
+        }
+
+        async fn get_active_by_prefix_and_hash_tx(
+            &self,
+            _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+            _key_prefix: &str,
+            _key_hash: &str,
         ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError> {
             Err(ApiKeyRepositoryError::InvalidInput)
         }

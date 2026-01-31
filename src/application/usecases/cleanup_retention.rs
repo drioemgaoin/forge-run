@@ -1,13 +1,9 @@
 // Use case: cleanup_retention.
 
-use crate::infrastructure::db::database::Database;
-use crate::infrastructure::db::postgres::PostgresDatabase;
-use std::sync::Arc;
+use crate::application::context::AppContext;
 
 /// Deletes data that is past its retention window.
-pub struct CleanupRetentionUseCase {
-    pub db: Arc<PostgresDatabase>,
-}
+pub struct CleanupRetentionUseCase;
 
 #[derive(Debug)]
 pub enum CleanupRetentionError {
@@ -22,10 +18,12 @@ pub struct CleanupRetentionResult {
 
 impl CleanupRetentionUseCase {
     /// Remove expired jobs (final state older than 30 days) and revoked API keys older than 90 days.
-    pub async fn execute(&self) -> Result<CleanupRetentionResult, CleanupRetentionError> {
+    pub async fn execute(
+        ctx: &AppContext,
+    ) -> Result<CleanupRetentionResult, CleanupRetentionError> {
         // Step 1: Delete jobs in a final state past retention.
-        let jobs_deleted = self
-            .db
+        let jobs_deleted = ctx
+            .repos
             .execute(
                 "DELETE FROM jobs
                  WHERE state IN ('succeeded','failed','canceled')
@@ -35,8 +33,8 @@ impl CleanupRetentionUseCase {
             .map_err(|e| CleanupRetentionError::Storage(format!("{e:?}")))?;
 
         // Step 2: Delete revoked API keys past retention.
-        let api_keys_deleted = self
-            .db
+        let api_keys_deleted = ctx
+            .repos
             .execute(
                 "DELETE FROM api_keys
                  WHERE revoked_at IS NOT NULL

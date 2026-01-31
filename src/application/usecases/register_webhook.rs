@@ -1,16 +1,15 @@
 // Use case: register_webhook.
 
+use crate::application::context::AppContext;
 use crate::infrastructure::db::dto::WebhookRow;
-use crate::infrastructure::db::stores::webhook_store::WebhookStore;
 use time::OffsetDateTime;
 
 /// Registers a webhook that will receive job event callbacks.
-pub struct RegisterWebhookUseCase<S: WebhookStore> {
-    pub store: S,
-}
+pub struct RegisterWebhookUseCase;
 
 #[derive(Debug)]
 pub enum RegisterWebhookError {
+    Conflict,
     Storage(String),
 }
 
@@ -26,10 +25,10 @@ pub struct RegisterWebhookResult {
     pub created_at: OffsetDateTime,
 }
 
-impl<S: WebhookStore + Send + Sync> RegisterWebhookUseCase<S> {
+impl RegisterWebhookUseCase {
     /// Register a new webhook and return its ID.
     pub async fn execute(
-        &self,
+        ctx: &AppContext,
         cmd: RegisterWebhookCommand,
     ) -> Result<RegisterWebhookResult, RegisterWebhookError> {
         // Step 1: Build a webhook row with a new ID.
@@ -41,11 +40,12 @@ impl<S: WebhookStore + Send + Sync> RegisterWebhookUseCase<S> {
         };
 
         // Step 2: Persist the webhook.
-        let stored = self
-            .store
-            .insert(&row)
-            .await
-            .map_err(|e| RegisterWebhookError::Storage(format!("{e:?}")))?;
+        let stored = ctx.repos.webhook.insert(&row).await.map_err(|e| match e {
+            crate::infrastructure::db::stores::webhook_store::WebhookRepositoryError::Conflict => {
+                RegisterWebhookError::Conflict
+            }
+            _ => RegisterWebhookError::Storage(format!("{e:?}")),
+        })?;
 
         // Step 3: Return the ID and timestamp.
         Ok(RegisterWebhookResult {
@@ -58,6 +58,7 @@ impl<S: WebhookStore + Send + Sync> RegisterWebhookUseCase<S> {
 #[cfg(test)]
 mod tests {
     use super::{RegisterWebhookCommand, RegisterWebhookUseCase};
+    use crate::application::context::test_support::test_context;
     use crate::infrastructure::db::dto::WebhookRow;
     use crate::infrastructure::db::stores::webhook_store::{WebhookRepositoryError, WebhookStore};
     use async_trait::async_trait;
@@ -92,15 +93,22 @@ mod tests {
         let store = DummyStore {
             inserted: Mutex::new(None),
         };
-        let usecase = RegisterWebhookUseCase { store };
+        let mut ctx = test_context();
+        ctx.repos.webhook = std::sync::Arc::new(
+            crate::infrastructure::db::repositories::webhook_repository::WebhookRepository::new(
+                std::sync::Arc::new(store),
+            ),
+        );
 
-        let result = usecase
-            .execute(RegisterWebhookCommand {
+        let result = RegisterWebhookUseCase::execute(
+            &ctx,
+            RegisterWebhookCommand {
                 url: "https://example.com/webhook".to_string(),
                 events: vec!["job_created".to_string()],
-            })
-            .await
-            .unwrap();
+            },
+        )
+        .await
+        .unwrap();
 
         assert!(!result.webhook_id.is_nil());
         assert!(result.created_at <= OffsetDateTime::now_utc());

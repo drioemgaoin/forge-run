@@ -30,7 +30,7 @@ async fn create_job_id() -> Option<JobId> {
     Some(JobId(stored.id))
 }
 
-async fn setup_repo() -> Option<ReportRepository<ReportStorePostgres>> {
+async fn setup_repo() -> Option<ReportRepository> {
     let url = test_db_url()?;
     let db = std::sync::Arc::new(PostgresDatabase::connect(&url).await.ok()?);
     let store = ReportStorePostgres::new(db);

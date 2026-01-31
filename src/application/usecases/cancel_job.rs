@@ -1,17 +1,13 @@
 // Use case: cancel_job.
 
+use crate::application::context::AppContext;
 use crate::domain::entities::event::Event;
 use crate::domain::entities::job::{Job, JobState};
-use crate::domain::services::job_lifecycle::{JobLifecycleError, JobLifecycleService};
+use crate::domain::services::job_lifecycle::JobLifecycleError;
 use crate::domain::value_objects::ids::JobId;
-use crate::infrastructure::db::dto::JobRow;
-use crate::infrastructure::db::stores::job_store::JobStore;
 
 /// Cancels a job if possible.
-pub struct CancelJobUseCase<S: JobStore, L: JobLifecycleService> {
-    pub job_store: S,
-    pub lifecycle: L,
-}
+pub struct CancelJobUseCase;
 
 #[derive(Debug)]
 pub enum CancelJobError {
@@ -26,18 +22,22 @@ pub struct CancelJobResult {
     pub event: Option<Event>,
 }
 
-impl<S: JobStore + Send + Sync, L: JobLifecycleService + Send + Sync> CancelJobUseCase<S, L> {
+impl CancelJobUseCase {
     /// Cancel a job and emit a cancellation event.
-    pub async fn execute(&self, job_id: JobId) -> Result<CancelJobResult, CancelJobError> {
+    pub async fn execute(
+        ctx: &AppContext,
+        job_id: JobId,
+    ) -> Result<CancelJobResult, CancelJobError> {
         // Step 1: Fetch the job.
-        let row = self
-            .job_store
-            .get(job_id.0)
+        let row = ctx
+            .repos
+            .job
+            .get(job_id)
             .await
             .map_err(|e| CancelJobError::Storage(format!("{e:?}")))?;
 
         let row = row.ok_or(CancelJobError::NotFound)?;
-        let mut job = JobRow::into_job(row);
+        let mut job = row;
 
         // Step 2: If already canceled, return current state without emitting new event.
         if job.state == JobState::Canceled {
@@ -45,8 +45,8 @@ impl<S: JobStore + Send + Sync, L: JobLifecycleService + Send + Sync> CancelJobU
         }
 
         // Step 3: Transition to Canceled (persists job + event).
-        let event = self
-            .lifecycle
+        let event = ctx
+            .job_lifecycle
             .transition(&mut job, JobState::Canceled)
             .await
             .map_err(CancelJobError::Transition)?;
@@ -62,6 +62,7 @@ impl<S: JobStore + Send + Sync, L: JobLifecycleService + Send + Sync> CancelJobU
 #[cfg(test)]
 mod tests {
     use super::{CancelJobError, CancelJobUseCase};
+    use crate::application::context::test_support::test_context;
     use crate::domain::entities::event::{Event, EventName};
     use crate::domain::entities::job::{Job, JobState};
     use crate::domain::services::job_lifecycle::{JobLifecycleError, JobLifecycleService};
@@ -218,12 +219,15 @@ mod tests {
         let store = DummyStore {
             row: Mutex::new(Some(row)),
         };
-        let usecase = CancelJobUseCase {
-            job_store: store,
-            lifecycle: DummyLifecycle,
-        };
+        let mut ctx = test_context();
+        ctx.repos.job = std::sync::Arc::new(
+            crate::infrastructure::db::repositories::job_repository::JobRepository::new(
+                std::sync::Arc::new(store),
+            ),
+        );
+        ctx.job_lifecycle = std::sync::Arc::new(DummyLifecycle);
 
-        let result = usecase.execute(job_id).await.unwrap();
+        let result = CancelJobUseCase::execute(&ctx, job_id).await.unwrap();
 
         assert_eq!(result.job.state, JobState::Canceled);
         assert!(result.event.is_some());
@@ -236,12 +240,15 @@ mod tests {
         let store = DummyStore {
             row: Mutex::new(Some(row)),
         };
-        let usecase = CancelJobUseCase {
-            job_store: store,
-            lifecycle: DummyLifecycle,
-        };
+        let mut ctx = test_context();
+        ctx.repos.job = std::sync::Arc::new(
+            crate::infrastructure::db::repositories::job_repository::JobRepository::new(
+                std::sync::Arc::new(store),
+            ),
+        );
+        ctx.job_lifecycle = std::sync::Arc::new(DummyLifecycle);
 
-        let result = usecase.execute(job_id).await.unwrap();
+        let result = CancelJobUseCase::execute(&ctx, job_id).await.unwrap();
 
         assert_eq!(result.job.state, JobState::Canceled);
         assert!(result.event.is_none());
@@ -252,12 +259,15 @@ mod tests {
         let store = DummyStore {
             row: Mutex::new(None),
         };
-        let usecase = CancelJobUseCase {
-            job_store: store,
-            lifecycle: DummyLifecycle,
-        };
+        let mut ctx = test_context();
+        ctx.repos.job = std::sync::Arc::new(
+            crate::infrastructure::db::repositories::job_repository::JobRepository::new(
+                std::sync::Arc::new(store),
+            ),
+        );
+        ctx.job_lifecycle = std::sync::Arc::new(DummyLifecycle);
 
-        let result = usecase.execute(JobId::new()).await;
+        let result = CancelJobUseCase::execute(&ctx, JobId::new()).await;
 
         assert!(matches!(result, Err(CancelJobError::NotFound)));
     }

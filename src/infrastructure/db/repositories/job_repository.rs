@@ -5,13 +5,13 @@ use crate::infrastructure::db::dto::JobRow;
 use crate::infrastructure::db::stores::job_store::{JobRepositoryError, JobStore};
 use std::sync::Arc;
 
-pub struct JobRepository<S: JobStore> {
-    store: Arc<S>,
+pub struct JobRepository {
+    store: Arc<dyn JobStore>,
 }
 
-impl<S: JobStore> JobRepository<S> {
+impl JobRepository {
     /// Build a repository that uses the given store implementation.
-    pub fn new(store: Arc<S>) -> Self {
+    pub fn new(store: Arc<dyn JobStore>) -> Self {
         Self { store }
     }
 
@@ -89,6 +89,79 @@ impl<S: JobStore> JobRepository<S> {
         let row = self
             .store
             .claim_next_queued()
+            .await
+            .map_err(|_| JobRepositoryError::StorageUnavailable)?;
+
+        Ok(row.map(JobRow::into_job))
+    }
+
+    /// Fetch a job by its ID inside an existing transaction.
+    pub async fn get_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        job_id: JobId,
+    ) -> Result<Option<Job>, JobRepositoryError> {
+        let row = self
+            .store
+            .get_tx(tx, job_id.0)
+            .await
+            .map_err(|_| JobRepositoryError::StorageUnavailable)?;
+
+        Ok(row.map(JobRow::into_job))
+    }
+
+    /// Create a job inside an existing transaction and return stored data.
+    pub async fn insert_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        job: &Job,
+    ) -> Result<Job, JobRepositoryError> {
+        let dto = JobRow::from_job(job);
+        let stored = self
+            .store
+            .insert_tx(tx, &dto)
+            .await
+            .map_err(|_| JobRepositoryError::StorageUnavailable)?;
+
+        Ok(stored.into_job())
+    }
+
+    /// Update a job inside an existing transaction and return stored data.
+    pub async fn update_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        job: &Job,
+    ) -> Result<Job, JobRepositoryError> {
+        let dto = JobRow::from_job(job);
+        let stored = self
+            .store
+            .update_tx(tx, &dto)
+            .await
+            .map_err(|_| JobRepositoryError::StorageUnavailable)?;
+
+        Ok(stored.into_job())
+    }
+
+    /// Delete a job by its ID inside an existing transaction.
+    pub async fn delete_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        job_id: JobId,
+    ) -> Result<(), JobRepositoryError> {
+        self.store
+            .delete_tx(tx, job_id.0)
+            .await
+            .map_err(|_| JobRepositoryError::StorageUnavailable)
+    }
+
+    /// Claim the next queued job inside an existing transaction.
+    pub async fn claim_next_queued_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Option<Job>, JobRepositoryError> {
+        let row = self
+            .store
+            .claim_next_queued_tx(tx)
             .await
             .map_err(|_| JobRepositoryError::StorageUnavailable)?;
 
@@ -216,7 +289,7 @@ mod tests {
     #[tokio::test]
     async fn given_job_when_insert_should_return_stored_job() {
         let store = Arc::new(DummyStore::new());
-        let repo = JobRepository::new(store);
+        let repo = JobRepository::new(store.clone());
         let job = sample_job();
 
         let stored = repo.insert(&job).await.unwrap();
@@ -253,7 +326,7 @@ mod tests {
     #[tokio::test]
     async fn given_job_when_update_should_return_updated_job() {
         let store = Arc::new(DummyStore::new());
-        let repo = JobRepository::new(store);
+        let repo = JobRepository::new(store.clone());
         let mut job = sample_job();
         job.state = JobState::Running;
         job.outcome = Some(JobOutcome::Success);

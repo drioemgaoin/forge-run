@@ -4,7 +4,7 @@ use crate::domain::value_objects::timestamps::Timestamp;
 use crate::domain::workflows::state_machine::{JobStateMachine, TransitionError};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Event {
     pub id: EventId,
     pub job_id: JobId,

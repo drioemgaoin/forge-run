@@ -31,6 +31,12 @@ pub trait ApiKeyStore: Send + Sync {
         &self,
         client_id: uuid::Uuid,
     ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError>;
+    /// Fetch an active API key by prefix+hash (used for auth).
+    async fn get_active_by_prefix_and_hash(
+        &self,
+        key_prefix: &str,
+        key_hash: &str,
+    ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError>;
 
     /// Create an API key inside an existing transaction and return the stored row.
     async fn insert_tx(
@@ -61,6 +67,13 @@ pub trait ApiKeyStore: Send + Sync {
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         client_id: uuid::Uuid,
+    ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError>;
+    /// Fetch an active API key by prefix+hash inside an existing transaction.
+    async fn get_active_by_prefix_and_hash_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        key_prefix: &str,
+        key_hash: &str,
     ) -> Result<Option<ApiKeyRow>, ApiKeyRepositoryError>;
 }
 

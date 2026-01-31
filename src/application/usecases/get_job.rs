@@ -1,14 +1,11 @@
 // Use case: get_job.
 
+use crate::application::context::AppContext;
 use crate::domain::entities::job::Job;
 use crate::domain::value_objects::ids::JobId;
-use crate::infrastructure::db::dto::JobRow;
-use crate::infrastructure::db::stores::job_store::JobStore;
 
 /// Fetches a job by its ID.
-pub struct GetJobUseCase<S: JobStore> {
-    pub store: S,
-}
+pub struct GetJobUseCase;
 
 #[derive(Debug)]
 pub enum GetJobError {
@@ -16,27 +13,29 @@ pub enum GetJobError {
     Storage(String),
 }
 
-impl<S: JobStore + Send + Sync> GetJobUseCase<S> {
+impl GetJobUseCase {
     /// Get a job by ID.
-    pub async fn execute(&self, job_id: JobId) -> Result<Job, GetJobError> {
+    pub async fn execute(ctx: &AppContext, job_id: JobId) -> Result<Job, GetJobError> {
         // Step 1: Fetch the row from storage.
-        let row = self
-            .store
-            .get(job_id.0)
+        let row = ctx
+            .repos
+            .job
+            .get(job_id)
             .await
             .map_err(|e| GetJobError::Storage(format!("{e:?}")))?;
 
         // Step 2: Return NotFound when missing.
         let row = row.ok_or(GetJobError::NotFound)?;
 
-        // Step 3: Convert row to domain entity and return.
-        Ok(JobRow::into_job(row))
+        // Step 3: Return the domain entity.
+        Ok(row)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{GetJobError, GetJobUseCase};
+    use crate::application::context::test_support::test_context;
     use crate::domain::entities::job::Job;
     use crate::domain::value_objects::ids::{ClientId, JobId};
     use crate::infrastructure::db::dto::JobRow;
@@ -141,9 +140,14 @@ mod tests {
     async fn given_existing_job_when_execute_should_return_job() {
         let row = sample_job_row();
         let store = DummyStore::new(Some(row.clone()));
-        let usecase = GetJobUseCase { store };
+        let mut ctx = test_context();
+        ctx.repos.job = std::sync::Arc::new(
+            crate::infrastructure::db::repositories::job_repository::JobRepository::new(
+                std::sync::Arc::new(store),
+            ),
+        );
 
-        let job = usecase.execute(JobId(row.id)).await.unwrap();
+        let job = GetJobUseCase::execute(&ctx, JobId(row.id)).await.unwrap();
 
         assert_eq!(job.id.0, row.id);
     }
@@ -151,9 +155,14 @@ mod tests {
     #[tokio::test]
     async fn given_missing_job_when_execute_should_return_not_found() {
         let store = DummyStore::new(None);
-        let usecase = GetJobUseCase { store };
+        let mut ctx = test_context();
+        ctx.repos.job = std::sync::Arc::new(
+            crate::infrastructure::db::repositories::job_repository::JobRepository::new(
+                std::sync::Arc::new(store),
+            ),
+        );
 
-        let result = usecase.execute(JobId::new()).await;
+        let result = GetJobUseCase::execute(&ctx, JobId::new()).await;
 
         assert!(matches!(result, Err(GetJobError::NotFound)));
     }

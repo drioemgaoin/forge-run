@@ -5,13 +5,8 @@ use crate::domain::value_objects::ids::{ClientId, EventId, JobId};
 use crate::domain::value_objects::timestamps::Timestamp;
 use crate::domain::workflows::state_machine::{JobStateMachine, TransitionError};
 use crate::infrastructure::db::database::DatabaseError;
-use crate::infrastructure::db::dto::{EventRow, JobRow, ReportRow};
-use crate::infrastructure::db::postgres::PostgresDatabase;
-use crate::infrastructure::db::stores::event_store::EventStore;
-use crate::infrastructure::db::stores::job_store::JobStore;
-use crate::infrastructure::db::stores::report_store::ReportStore;
+use crate::infrastructure::db::repositories::Repositories;
 use async_trait::async_trait;
-use std::sync::Arc;
 
 /// Domain-level job lifecycle contract.
 ///
@@ -31,7 +26,7 @@ pub enum JobLifecycleError {
 /// Use this trait from application/use-case code to describe the business flow.
 /// A concrete implementation (like `JobLifecycle`) will handle persistence.
 #[async_trait]
-pub trait JobLifecycleService {
+pub trait JobLifecycleService: Send + Sync {
     /// Create an instant job and its initial `JobCreated` event.
     ///
     /// Use this in submit flows when the job should run immediately.
@@ -78,34 +73,23 @@ pub trait JobLifecycleService {
     ) -> Result<Report, JobLifecycleError>;
 }
 
-/// Domain implementation of the lifecycle using store traits and a transaction runner.
+/// Domain implementation of the lifecycle using repositories and a transaction runner.
 ///
 /// This is the default implementation used by the application layer.
-pub struct JobLifecycle<J: JobStore, E: EventStore, R: ReportStore> {
-    db: Arc<PostgresDatabase>,
-    job_store: J,
-    event_store: E,
-    report_store: R,
+pub struct JobLifecycle {
+    repos: Repositories,
 }
 
-impl<J: JobStore, E: EventStore, R: ReportStore> JobLifecycle<J, E, R> {
-    pub fn new(db: Arc<PostgresDatabase>, job_store: J, event_store: E, report_store: R) -> Self {
-        Self {
-            db,
-            job_store,
-            event_store,
-            report_store,
-        }
+impl JobLifecycle {
+    /// Build the lifecycle service with repositories that encapsulate persistence.
+    pub fn new(repos: Repositories) -> Self {
+        // Step 1: Store repositories for later transactional use.
+        Self { repos }
     }
 }
 
 #[async_trait]
-impl<J, E, R> JobLifecycleService for JobLifecycle<J, E, R>
-where
-    J: JobStore + Send + Sync + Clone + 'static,
-    E: EventStore + Send + Sync + Clone + 'static,
-    R: ReportStore + Send + Sync + Clone + 'static,
-{
+impl JobLifecycleService for JobLifecycle {
     /// Create an instant job and persist both the job and its `JobCreated` event.
     async fn create_instant(
         &self,
@@ -119,24 +103,22 @@ where
             .map_err(JobLifecycleError::Validation)?;
         let created_event = Event::new_created(EventId::new(), job.id, Timestamp::now_utc());
 
-        // Step 2: Convert domain objects to DB rows.
-        let job_row = JobRow::from_job(&job);
-        let event_row = EventRow::from_event(&created_event);
-        let job_store = self.job_store.clone();
-        let event_store = self.event_store.clone();
+        // Step 2: Prepare repository handles.
+        let job_repo = self.repos.job.clone();
+        let event_repo = self.repos.event.clone();
 
         // Step 3: Persist both rows in a single transaction.
-        self.db
+        self.repos
             .with_tx(|tx| {
-                let job_row = job_row.clone();
-                let event_row = event_row.clone();
+                let job = job.clone();
+                let created_event = created_event.clone();
                 Box::pin(async move {
-                    job_store
-                        .insert_tx(tx, &job_row)
+                    job_repo
+                        .insert_tx(tx, &job)
                         .await
                         .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
-                    event_store
-                        .insert_tx(tx, &event_row)
+                    event_repo
+                        .insert_tx(tx, &created_event)
                         .await
                         .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
                     Ok(())
@@ -163,24 +145,22 @@ where
             .map_err(JobLifecycleError::Validation)?;
         let created_event = Event::new_created(EventId::new(), job.id, Timestamp::now_utc());
 
-        // Step 2: Convert domain objects to DB rows.
-        let job_row = JobRow::from_job(&job);
-        let event_row = EventRow::from_event(&created_event);
-        let job_store = self.job_store.clone();
-        let event_store = self.event_store.clone();
+        // Step 2: Prepare repository handles.
+        let job_repo = self.repos.job.clone();
+        let event_repo = self.repos.event.clone();
 
         // Step 3: Persist both rows in a single transaction.
-        self.db
+        self.repos
             .with_tx(|tx| {
-                let job_row = job_row.clone();
-                let event_row = event_row.clone();
+                let job = job.clone();
+                let created_event = created_event.clone();
                 Box::pin(async move {
-                    job_store
-                        .insert_tx(tx, &job_row)
+                    job_repo
+                        .insert_tx(tx, &job)
                         .await
                         .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
-                    event_store
-                        .insert_tx(tx, &event_row)
+                    event_repo
+                        .insert_tx(tx, &created_event)
                         .await
                         .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
                     Ok(())
@@ -225,24 +205,22 @@ where
         let event = Event::from_transition(EventId::new(), job.id, prev_state, next_state)
             .map_err(JobLifecycleError::Transition)?;
 
-        // Step 4: Convert domain objects to DB rows.
-        let job_row = JobRow::from_job(job);
-        let event_row = EventRow::from_event(&event);
-        let job_store = self.job_store.clone();
-        let event_store = self.event_store.clone();
+        // Step 4: Prepare repository handles.
+        let job_repo = self.repos.job.clone();
+        let event_repo = self.repos.event.clone();
 
         // Step 5: Persist both rows in a single transaction.
-        self.db
+        self.repos
             .with_tx(|tx| {
-                let job_row = job_row.clone();
-                let event_row = event_row.clone();
+                let job = job.clone();
+                let event = event.clone();
                 Box::pin(async move {
-                    job_store
-                        .update_tx(tx, &job_row)
+                    job_repo
+                        .update_tx(tx, &job)
                         .await
                         .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
-                    event_store
-                        .insert_tx(tx, &event_row)
+                    event_repo
+                        .insert_tx(tx, &event)
                         .await
                         .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
                     Ok(())
@@ -267,17 +245,16 @@ where
         let report = Report::from_events(job_id, outcome, outcome_reason, events)
             .map_err(JobLifecycleError::Report)?;
 
-        // Step 2: Convert the report to a DB row.
-        let report_row = ReportRow::from_report(&report);
-        let report_store = self.report_store.clone();
+        // Step 2: Prepare repository handle.
+        let report_repo = self.repos.report.clone();
 
         // Step 3: Persist the report in a single transaction.
-        self.db
+        self.repos
             .with_tx(|tx| {
-                let report_row = report_row.clone();
+                let report = report.clone();
                 Box::pin(async move {
-                    report_store
-                        .insert_tx(tx, &report_row)
+                    report_repo
+                        .insert_tx(tx, &report)
                         .await
                         .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
                     Ok(())
@@ -300,39 +277,21 @@ mod tests {
     use crate::domain::value_objects::ids::{ClientId, JobId};
     use crate::domain::value_objects::timestamps::Timestamp;
     use crate::infrastructure::db::postgres::PostgresDatabase;
-    use crate::infrastructure::db::postgres::event_store_postgres::EventStorePostgres;
-    use crate::infrastructure::db::postgres::job_store_postgres::JobStorePostgres;
-    use crate::infrastructure::db::postgres::report_store_postgres::ReportStorePostgres;
-    use crate::infrastructure::db::stores::event_store::EventStore;
-    use crate::infrastructure::db::stores::job_store::JobStore;
-    use crate::infrastructure::db::stores::report_store::ReportStore;
+    use crate::infrastructure::db::repositories::Repositories;
     use std::sync::Arc;
     use time::Duration;
 
-    async fn setup_lifecycle() -> Option<(
-        JobLifecycle<JobStorePostgres, EventStorePostgres, ReportStorePostgres>,
-        JobStorePostgres,
-        EventStorePostgres,
-        ReportStorePostgres,
-    )> {
+    async fn setup_lifecycle() -> Option<(JobLifecycle, Repositories)> {
         let url = std::env::var("DATABASE_URL").ok()?;
         let db = Arc::new(PostgresDatabase::connect(&url).await.ok()?);
-        let job_store = JobStorePostgres::new(db.clone());
-        let event_store = EventStorePostgres::new(db.clone());
-        let report_store = ReportStorePostgres::new(db.clone());
-        let lifecycle = JobLifecycle::new(
-            db,
-            job_store.clone(),
-            event_store.clone(),
-            report_store.clone(),
-        );
-        Some((lifecycle, job_store, event_store, report_store))
+        let repos = Repositories::postgres(db.clone());
+        let lifecycle = JobLifecycle::new(repos.clone());
+        Some((lifecycle, repos))
     }
 
     #[tokio::test]
     async fn given_valid_instant_job_when_created_should_return_job() {
-        let Some((lifecycle, job_store, event_store, _report_store)) = setup_lifecycle().await
-        else {
+        let Some((lifecycle, repos)) = setup_lifecycle().await else {
             return;
         };
         let (job, event) = lifecycle
@@ -349,14 +308,13 @@ mod tests {
         assert_eq!(event.event_name, EventName::JobCreated);
         assert_eq!(event.job_id, job.id);
 
-        event_store.delete(event.id.0).await.unwrap();
-        job_store.delete(job.id.0).await.unwrap();
+        repos.event.delete(event.id).await.unwrap();
+        repos.job.delete(job.id).await.unwrap();
     }
 
     #[tokio::test]
     async fn given_missing_work_kind_when_created_instant_should_return_error() {
-        let Some((lifecycle, _job_store, _event_store, _report_store)) = setup_lifecycle().await
-        else {
+        let Some((lifecycle, _repos)) = setup_lifecycle().await else {
             return;
         };
         let result = lifecycle
@@ -373,8 +331,7 @@ mod tests {
 
     #[tokio::test]
     async fn given_past_execution_at_when_created_deferred_should_return_error() {
-        let Some((lifecycle, _job_store, _event_store, _report_store)) = setup_lifecycle().await
-        else {
+        let Some((lifecycle, _repos)) = setup_lifecycle().await else {
             return;
         };
         let now = Timestamp::now_utc();
@@ -400,8 +357,7 @@ mod tests {
 
     #[tokio::test]
     async fn given_valid_transition_when_called_should_update_state_and_emit_event() {
-        let Some((lifecycle, job_store, event_store, _report_store)) = setup_lifecycle().await
-        else {
+        let Some((lifecycle, repos)) = setup_lifecycle().await else {
             return;
         };
         let (mut job, created_event) = lifecycle
@@ -422,15 +378,14 @@ mod tests {
         assert_eq!(job.state, JobState::Queued);
         assert_eq!(event.event_name, EventName::JobQueued);
 
-        event_store.delete(event.id.0).await.unwrap();
-        event_store.delete(created_event.id.0).await.unwrap();
-        job_store.delete(job.id.0).await.unwrap();
+        repos.event.delete(event.id).await.unwrap();
+        repos.event.delete(created_event.id).await.unwrap();
+        repos.job.delete(job.id).await.unwrap();
     }
 
     #[tokio::test]
     async fn given_invalid_transition_when_called_should_return_error() {
-        let Some((lifecycle, job_store, event_store, _report_store)) = setup_lifecycle().await
-        else {
+        let Some((lifecycle, repos)) = setup_lifecycle().await else {
             return;
         };
         let (mut job, created_event) = lifecycle
@@ -452,14 +407,13 @@ mod tests {
             ))
         );
 
-        event_store.delete(created_event.id.0).await.unwrap();
-        job_store.delete(job.id.0).await.unwrap();
+        repos.event.delete(created_event.id).await.unwrap();
+        repos.job.delete(job.id).await.unwrap();
     }
 
     #[tokio::test]
     async fn given_running_to_succeeded_when_transitioned_should_set_outcome() {
-        let Some((lifecycle, job_store, event_store, _report_store)) = setup_lifecycle().await
-        else {
+        let Some((lifecycle, repos)) = setup_lifecycle().await else {
             return;
         };
         let (mut job, created_event) = lifecycle
@@ -482,15 +436,14 @@ mod tests {
         assert_eq!(job.outcome, Some(JobOutcome::Success));
         assert_eq!(event.event_name, EventName::JobSucceeded);
 
-        event_store.delete(event.id.0).await.unwrap();
-        event_store.delete(created_event.id.0).await.unwrap();
-        job_store.delete(job.id.0).await.unwrap();
+        repos.event.delete(event.id).await.unwrap();
+        repos.event.delete(created_event.id).await.unwrap();
+        repos.job.delete(job.id).await.unwrap();
     }
 
     #[tokio::test]
     async fn given_valid_events_when_finalize_report_called_should_return_report() {
-        let Some((lifecycle, job_store, event_store, report_store)) = setup_lifecycle().await
-        else {
+        let Some((lifecycle, repos)) = setup_lifecycle().await else {
             return;
         };
         let (job, created_event) = lifecycle
@@ -529,15 +482,14 @@ mod tests {
         assert_eq!(report.job_id, job_id);
         assert_eq!(report.outcome, JobOutcome::Success);
 
-        report_store.delete(job_id.0).await.unwrap();
-        event_store.delete(created_event.id.0).await.unwrap();
-        job_store.delete(job_id.0).await.unwrap();
+        repos.report.delete(job_id).await.unwrap();
+        repos.event.delete(created_event.id).await.unwrap();
+        repos.job.delete(job_id).await.unwrap();
     }
 
     #[tokio::test]
     async fn given_missing_start_event_when_finalize_report_called_should_return_error() {
-        let Some((lifecycle, _job_store, _event_store, _report_store)) = setup_lifecycle().await
-        else {
+        let Some((lifecycle, _repos)) = setup_lifecycle().await else {
             return;
         };
         let job_id = JobId::new();
