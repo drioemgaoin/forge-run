@@ -5,6 +5,7 @@ pub struct Settings {
     pub server: Server,
     pub db: Db,
     pub redis: Redis,
+    pub workers: Workers,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -21,6 +22,15 @@ pub struct Db {
 #[derive(Debug, Deserialize, Clone)]
 pub struct Redis {
     pub url: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Workers {
+    pub default_count: usize,
+    pub max_count: usize,
+    pub poll_interval_ms: u64,
+    pub lease_timeout_seconds: u64,
+    pub scale_interval_ms: u64,
 }
 
 /// Load settings from `config/default.toml`, `config/<env>.toml`, and env overrides.

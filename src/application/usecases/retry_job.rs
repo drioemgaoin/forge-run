@@ -5,6 +5,8 @@ use crate::domain::entities::event::Event;
 use crate::domain::entities::job::{Job, JobState};
 use crate::domain::services::job_lifecycle::JobLifecycleError;
 use crate::domain::value_objects::ids::JobId;
+use crate::domain::value_objects::timestamps::Timestamp;
+use crate::domain::workflows::retry_policy::RetryPolicy;
 
 /// Retries a failed job (moves it back to queued).
 pub struct RetryJobUseCase;
@@ -13,6 +15,7 @@ pub struct RetryJobUseCase;
 pub enum RetryJobError {
     NotFound,
     InvalidState,
+    RetryLimitReached,
     Storage(String),
     Transition(JobLifecycleError),
 }
@@ -42,9 +45,17 @@ impl RetryJobUseCase {
         }
 
         // Step 3: Update attempt and clear outcome before retry.
-        job.attempt = job.attempt.saturating_add(1);
+        let policy = RetryPolicy::default();
+        if !policy.can_retry(job.attempt) {
+            return Err(RetryJobError::RetryLimitReached);
+        }
+        let next_attempt = job.attempt.saturating_add(1);
+        let seed = job.id.0.as_u128() as u64;
+        let delay = policy.next_delay(next_attempt, seed);
+        job.attempt = next_attempt;
         job.outcome = None;
         job.outcome_reason = None;
+        job.executed_at = Some(Timestamp::from(Timestamp::now_utc().as_inner() + delay));
 
         // Step 4: Transition to Queued (persists job + event).
         let event = ctx
@@ -70,6 +81,7 @@ mod tests {
     use crate::domain::services::job_lifecycle::{JobLifecycleError, JobLifecycleService};
     use crate::domain::value_objects::ids::{ClientId, EventId, JobId};
     use crate::domain::value_objects::timestamps::Timestamp;
+    use crate::domain::workflows::retry_policy::RetryPolicy;
     use crate::infrastructure::db::dto::JobRow;
     use crate::infrastructure::db::stores::job_store::{JobRepositoryError, JobStore};
     use async_trait::async_trait;
@@ -105,7 +117,33 @@ mod tests {
             Err(JobRepositoryError::InvalidInput)
         }
 
-        async fn claim_next_queued(&self) -> Result<Option<JobRow>, JobRepositoryError> {
+        async fn claim_next_queued(
+            &self,
+            _worker_id: &str,
+            _lease_expires_at: time::OffsetDateTime,
+        ) -> Result<Option<JobRow>, JobRepositoryError> {
+            Err(JobRepositoryError::InvalidInput)
+        }
+
+        async fn list_expired_leases(
+            &self,
+            _now: time::OffsetDateTime,
+            _limit: u32,
+        ) -> Result<Vec<JobRow>, JobRepositoryError> {
+            Err(JobRepositoryError::InvalidInput)
+        }
+
+        async fn heartbeat(
+            &self,
+            _job_id: uuid::Uuid,
+            _worker_id: &str,
+            _heartbeat_at: time::OffsetDateTime,
+            _lease_expires_at: time::OffsetDateTime,
+        ) -> Result<JobRow, JobRepositoryError> {
+            Err(JobRepositoryError::InvalidInput)
+        }
+
+        async fn queue_depth(&self) -> Result<u64, JobRepositoryError> {
             Err(JobRepositoryError::InvalidInput)
         }
 
@@ -144,6 +182,8 @@ mod tests {
         async fn claim_next_queued_tx(
             &self,
             _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+            _worker_id: &str,
+            _lease_expires_at: time::OffsetDateTime,
         ) -> Result<Option<JobRow>, JobRepositoryError> {
             Err(JobRepositoryError::InvalidInput)
         }
@@ -254,6 +294,27 @@ mod tests {
         let result = RetryJobUseCase::execute(&ctx, job_id).await;
 
         assert!(matches!(result, Err(RetryJobError::InvalidState)));
+    }
+
+    #[tokio::test]
+    async fn given_failed_job_with_max_attempts_when_execute_should_return_retry_limit() {
+        let job_id = JobId::new();
+        let mut row = sample_job_row(JobState::Failed, job_id);
+        row.attempt = RetryPolicy::default().max_retries as i32;
+        let store = DummyStore {
+            row: Mutex::new(Some(row)),
+        };
+        let mut ctx = test_context();
+        ctx.repos.job = std::sync::Arc::new(
+            crate::infrastructure::db::repositories::job_repository::JobRepository::new(
+                std::sync::Arc::new(store),
+            ),
+        );
+        ctx.job_lifecycle = std::sync::Arc::new(DummyLifecycle);
+
+        let result = RetryJobUseCase::execute(&ctx, job_id).await;
+
+        assert!(matches!(result, Err(RetryJobError::RetryLimitReached)));
     }
 
     #[tokio::test]

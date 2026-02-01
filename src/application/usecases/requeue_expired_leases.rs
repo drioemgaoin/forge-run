@@ -1,4 +1,4 @@
-// Use case: queue_due_jobs.
+// Use case: requeue_expired_leases.
 
 use crate::application::context::AppContext;
 use crate::domain::entities::event::Event;
@@ -6,58 +6,65 @@ use crate::domain::entities::job::Job;
 use crate::domain::services::job_lifecycle::JobLifecycleError;
 use crate::domain::value_objects::timestamps::Timestamp;
 
-/// Moves due deferred jobs into the queue.
-pub struct QueueDueJobsUseCase;
+/// Re-queues jobs whose leases have expired.
+pub struct RequeueExpiredLeasesUseCase;
 
 #[derive(Debug)]
-pub enum QueueDueJobsError {
+pub enum RequeueExpiredLeasesError {
     Storage(String),
     Transition(JobLifecycleError),
 }
 
 #[derive(Debug)]
-pub struct QueueDueJobsResult {
+pub struct RequeueExpiredLeasesResult {
     pub jobs: Vec<Job>,
     pub events: Vec<Event>,
 }
 
-impl QueueDueJobsUseCase {
-    /// Find due jobs and move them to `Queued` with events.
+impl RequeueExpiredLeasesUseCase {
+    /// Find expired leases and move jobs back to `Queued` with events.
     pub async fn execute(
         ctx: &AppContext,
         now: Timestamp,
         limit: u32,
-    ) -> Result<QueueDueJobsResult, QueueDueJobsError> {
-        // Step 1: Load due deferred jobs.
+    ) -> Result<RequeueExpiredLeasesResult, RequeueExpiredLeasesError> {
+        // Step 1: Load jobs whose lease has expired.
         let rows = ctx
             .repos
             .job
-            .list_due_deferred(now, limit)
+            .list_expired_leases(now, limit)
             .await
-            .map_err(|e| QueueDueJobsError::Storage(format!("{e:?}")))?;
+            .map_err(|e| RequeueExpiredLeasesError::Storage(format!("{e:?}")))?;
 
         let mut jobs = Vec::new();
         let mut events = Vec::new();
 
-        // Step 2: Transition each job to queued (persist job + event).
+        // Step 2: Clear lease info and transition each job back to queued.
         for mut job in rows {
+            job.lease_owner = None;
+            job.lease_expires_at = None;
+            job.heartbeat_at = None;
+            job.outcome = None;
+            job.outcome_reason = None;
+
             let event = ctx
                 .job_lifecycle
                 .transition(&mut job, crate::domain::entities::job::JobState::Queued)
                 .await
-                .map_err(QueueDueJobsError::Transition)?;
+                .map_err(RequeueExpiredLeasesError::Transition)?;
+
             jobs.push(job);
             events.push(event);
         }
 
-        // Step 3: Return the list of scheduled jobs and events.
-        Ok(QueueDueJobsResult { jobs, events })
+        // Step 3: Return the re-queued jobs and events.
+        Ok(RequeueExpiredLeasesResult { jobs, events })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::QueueDueJobsUseCase;
+    use super::RequeueExpiredLeasesUseCase;
     use crate::application::context::test_support::test_context;
     use crate::domain::entities::event::{Event, EventName};
     use crate::domain::entities::job::{Job, JobState};
@@ -77,7 +84,7 @@ mod tests {
     #[async_trait]
     impl JobStore for DummyStore {
         async fn get(&self, _job_id: uuid::Uuid) -> Result<Option<JobRow>, JobRepositoryError> {
-            Ok(None)
+            Err(JobRepositoryError::InvalidInput)
         }
 
         async fn insert(&self, _row: &JobRow) -> Result<JobRow, JobRepositoryError> {
@@ -97,7 +104,7 @@ mod tests {
             _now: OffsetDateTime,
             _limit: u32,
         ) -> Result<Vec<JobRow>, JobRepositoryError> {
-            Ok(self.rows.lock().unwrap().clone())
+            Err(JobRepositoryError::InvalidInput)
         }
 
         async fn claim_next_queued(
@@ -113,7 +120,7 @@ mod tests {
             _now: OffsetDateTime,
             _limit: u32,
         ) -> Result<Vec<JobRow>, JobRepositoryError> {
-            Err(JobRepositoryError::InvalidInput)
+            Ok(self.rows.lock().unwrap().clone())
         }
 
         async fn heartbeat(
@@ -207,7 +214,7 @@ mod tests {
                 id: EventId::new(),
                 job_id: job.id,
                 event_name: EventName::JobQueued,
-                prev_state: JobState::Created,
+                prev_state: JobState::Assigned,
                 next_state: JobState::Queued,
                 timestamp: Timestamp::now_utc(),
             })
@@ -225,21 +232,19 @@ mod tests {
     }
 
     fn sample_row() -> JobRow {
-        let now = Timestamp::now_utc();
-        let execution_at = Timestamp::from(now.as_inner() + time::Duration::seconds(1));
-        let job = Job::new_deferred(
+        let mut job = Job::new_instant(
             JobId::new(),
             ClientId::new(),
-            execution_at,
             None,
             Some("SUCCESS_FAST".to_string()),
         )
         .unwrap();
+        job.state = JobState::Assigned;
         JobRow::from_job(&job)
     }
 
     #[tokio::test]
-    async fn given_due_jobs_when_execute_should_queue_each_one() {
+    async fn given_expired_leases_when_execute_should_requeue_jobs() {
         let store = DummyStore {
             rows: Mutex::new(vec![sample_row()]),
         };
@@ -251,7 +256,7 @@ mod tests {
         );
         ctx.job_lifecycle = std::sync::Arc::new(DummyLifecycle);
 
-        let result = QueueDueJobsUseCase::execute(&ctx, Timestamp::now_utc(), 10)
+        let result = RequeueExpiredLeasesUseCase::execute(&ctx, Timestamp::now_utc(), 10)
             .await
             .unwrap();
 

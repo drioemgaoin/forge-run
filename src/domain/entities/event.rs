@@ -39,7 +39,7 @@ impl EventName {
 }
 
 impl Event {
-    const TRANSITIONS: [((JobState, JobState), EventName); 10] = [
+    const TRANSITIONS: [((JobState, JobState), EventName); 12] = [
         ((JobState::Created, JobState::Queued), EventName::JobQueued),
         (
             (JobState::Created, JobState::Canceled),
@@ -57,10 +57,12 @@ impl Event {
             (JobState::Assigned, JobState::Running),
             EventName::JobStarted,
         ),
+        ((JobState::Assigned, JobState::Queued), EventName::JobQueued),
         (
             (JobState::Assigned, JobState::Canceled),
             EventName::JobCanceled,
         ),
+        ((JobState::Running, JobState::Queued), EventName::JobQueued),
         (
             (JobState::Running, JobState::Succeeded),
             EventName::JobSucceeded,
@@ -141,6 +143,18 @@ mod tests {
     }
 
     #[test]
+    fn given_assigned_to_queued_transition_when_from_transition_called_should_emit_job_queued() {
+        let result = Event::from_transition(
+            EventId::new(),
+            JobId::new(),
+            JobState::Assigned,
+            JobState::Queued,
+        );
+        let event = result.expect("event should be created");
+        assert_eq!(event.event_name, EventName::JobQueued);
+    }
+
+    #[test]
     fn given_running_to_succeeded_transition_when_from_transition_called_should_emit_job_succeeded()
     {
         let result = Event::from_transition(
@@ -151,6 +165,18 @@ mod tests {
         );
         let event = result.expect("event should be created");
         assert_eq!(event.event_name, EventName::JobSucceeded);
+    }
+
+    #[test]
+    fn given_running_to_queued_transition_when_from_transition_called_should_emit_job_queued() {
+        let result = Event::from_transition(
+            EventId::new(),
+            JobId::new(),
+            JobState::Running,
+            JobState::Queued,
+        );
+        let event = result.expect("event should be created");
+        assert_eq!(event.event_name, EventName::JobQueued);
     }
 
     #[test]

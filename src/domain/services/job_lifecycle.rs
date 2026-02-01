@@ -190,10 +190,11 @@ impl JobLifecycleService for JobLifecycle {
                 let _ = job.mark_succeeded();
             }
             JobState::Failed => {
-                let _ = job.mark_failed(String::new());
+                let reason = job.outcome_reason.clone().unwrap_or_default();
+                let _ = job.mark_failed(reason);
             }
             JobState::Canceled => {
-                job.mark_canceled(None);
+                job.mark_canceled(job.outcome_reason.clone());
             }
             _ => {
                 job.state = next_state;

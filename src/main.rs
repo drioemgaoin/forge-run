@@ -1,4 +1,5 @@
 use forge_run::application::context::AppContext;
+use forge_run::application::usecases::worker_manager::WorkerManager;
 use forge_run::config;
 use forge_run::domain::services::job_lifecycle::JobLifecycle;
 use forge_run::infrastructure::db::postgres::PostgresDatabase;
@@ -30,11 +31,15 @@ async fn main() {
         settings: settings.clone(),
     };
 
-    // Step 5: Build the HTTP app.
+    // Step 5: Start the worker manager for background processing.
+    let worker_manager = Arc::new(WorkerManager::new(state.ctx.clone(), &settings.workers));
+    worker_manager.start().await.expect("start workers");
+
+    // Step 6: Build the HTTP app.
     let app = http::app(state);
     let bind_addr = format!("{}:{}", settings.server.host, settings.server.port);
 
-    // Step 6: Bind and serve.
+    // Step 7: Bind and serve.
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .expect("bind server");

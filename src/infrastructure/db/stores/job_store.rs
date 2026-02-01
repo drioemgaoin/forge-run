@@ -34,7 +34,27 @@ pub trait JobStore: Send + Sync {
         limit: u32,
     ) -> Result<Vec<JobRow>, JobRepositoryError>;
     /// Atomically claim the next queued job, if any.
-    async fn claim_next_queued(&self) -> Result<Option<JobRow>, JobRepositoryError>;
+    async fn claim_next_queued(
+        &self,
+        worker_id: &str,
+        lease_expires_at: OffsetDateTime,
+    ) -> Result<Option<JobRow>, JobRepositoryError>;
+    /// List jobs with expired leases that should be re-queued.
+    async fn list_expired_leases(
+        &self,
+        now: OffsetDateTime,
+        limit: u32,
+    ) -> Result<Vec<JobRow>, JobRepositoryError>;
+    /// Record a heartbeat for a leased job, extending the lease expiration.
+    async fn heartbeat(
+        &self,
+        job_id: uuid::Uuid,
+        worker_id: &str,
+        heartbeat_at: OffsetDateTime,
+        lease_expires_at: OffsetDateTime,
+    ) -> Result<JobRow, JobRepositoryError>;
+    /// Return the current number of queued jobs available for workers.
+    async fn queue_depth(&self) -> Result<u64, JobRepositoryError>;
 
     /// Create a job inside an existing transaction and return the stored row.
     async fn insert_tx(
@@ -64,5 +84,7 @@ pub trait JobStore: Send + Sync {
     async fn claim_next_queued_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        worker_id: &str,
+        lease_expires_at: OffsetDateTime,
     ) -> Result<Option<JobRow>, JobRepositoryError>;
 }

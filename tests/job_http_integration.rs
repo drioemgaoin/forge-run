@@ -39,6 +39,13 @@ async fn setup_state() -> Option<(AppState, Arc<PostgresDatabase>)> {
             redis: forge_run::config::Redis {
                 url: "redis://127.0.0.1/".to_string(),
             },
+            workers: forge_run::config::Workers {
+                default_count: 1,
+                max_count: 1,
+                poll_interval_ms: 250,
+                lease_timeout_seconds: 30,
+                scale_interval_ms: 1000,
+            },
         },
     };
     Some((state, db))
