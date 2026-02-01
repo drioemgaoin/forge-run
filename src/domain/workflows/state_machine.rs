@@ -17,7 +17,9 @@ impl JobStateMachine {
                 | (JobState::Queued, JobState::Assigned)
                 | (JobState::Queued, JobState::Canceled)
                 | (JobState::Assigned, JobState::Running)
+                | (JobState::Assigned, JobState::Queued)
                 | (JobState::Assigned, JobState::Canceled)
+                | (JobState::Running, JobState::Queued)
                 | (JobState::Running, JobState::Succeeded)
                 | (JobState::Running, JobState::Failed)
                 | (JobState::Running, JobState::Canceled)
@@ -46,7 +48,9 @@ mod tests {
             (JobState::Queued, JobState::Assigned),
             (JobState::Queued, JobState::Canceled),
             (JobState::Assigned, JobState::Running),
+            (JobState::Assigned, JobState::Queued),
             (JobState::Assigned, JobState::Canceled),
+            (JobState::Running, JobState::Queued),
             (JobState::Running, JobState::Succeeded),
             (JobState::Running, JobState::Failed),
             (JobState::Running, JobState::Canceled),

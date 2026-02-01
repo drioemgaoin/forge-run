@@ -80,6 +80,9 @@ pub struct Job {
     pub executed_at: Option<Timestamp>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
+    pub lease_owner: Option<String>,
+    pub lease_expires_at: Option<Timestamp>,
+    pub heartbeat_at: Option<Timestamp>,
     pub callback_url: Option<String>,
     pub working_kind: Option<String>,
 }
@@ -121,6 +124,9 @@ impl Job {
             executed_at,
             created_at: now,
             updated_at: now,
+            lease_owner: None,
+            lease_expires_at: None,
+            heartbeat_at: None,
             callback_url,
             working_kind,
         })

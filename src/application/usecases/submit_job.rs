@@ -3,7 +3,7 @@
 
 use crate::application::context::AppContext;
 use crate::domain::entities::event::Event;
-use crate::domain::entities::job::Job;
+use crate::domain::entities::job::{Job, JobState, JobType};
 use crate::domain::services::job_lifecycle::JobLifecycleError;
 use crate::domain::value_objects::ids::{ClientId, JobId};
 use crate::domain::value_objects::timestamps::Timestamp;
@@ -133,7 +133,32 @@ impl SubmitJobUseCase {
                             .await
                             .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
 
-                        Ok((job, created_event))
+                        // Step 5: Enqueue instant jobs immediately.
+                        if job.job_type == JobType::Instant {
+                            let mut queued_job = job.clone();
+                            queued_job.state = JobState::Queued;
+                            queued_job.updated_at = now;
+                            let queued_event = Event::from_transition(
+                                crate::domain::value_objects::ids::EventId::new(),
+                                job.id,
+                                JobState::Created,
+                                JobState::Queued,
+                            )
+                            .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+
+                            job_repo
+                                .update_tx(tx, &queued_job)
+                                .await
+                                .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+                            event_repo
+                                .insert_tx(tx, &queued_event)
+                                .await
+                                .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+
+                            Ok((queued_job, created_event))
+                        } else {
+                            Ok((job, created_event))
+                        }
                     } else {
                         // Step 5: No idempotency key, create job + event only.
                         let job_id = JobId::new();
@@ -168,7 +193,32 @@ impl SubmitJobUseCase {
                             .await
                             .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
 
-                        Ok((job, created_event))
+                        // Step 7: Enqueue instant jobs immediately.
+                        if job.job_type == JobType::Instant {
+                            let mut queued_job = job.clone();
+                            queued_job.state = JobState::Queued;
+                            queued_job.updated_at = now;
+                            let queued_event = Event::from_transition(
+                                crate::domain::value_objects::ids::EventId::new(),
+                                job.id,
+                                JobState::Created,
+                                JobState::Queued,
+                            )
+                            .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+
+                            job_repo
+                                .update_tx(tx, &queued_job)
+                                .await
+                                .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+                            event_repo
+                                .insert_tx(tx, &queued_event)
+                                .await
+                                .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+
+                            Ok((queued_job, created_event))
+                        } else {
+                            Ok((job, created_event))
+                        }
                     }
                 })
             })

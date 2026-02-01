@@ -4,6 +4,7 @@ use crate::domain::value_objects::timestamps::Timestamp;
 use crate::infrastructure::db::dto::JobRow;
 use crate::infrastructure::db::stores::job_store::{JobRepositoryError, JobStore};
 use std::sync::Arc;
+use time::{Duration, OffsetDateTime};
 
 pub struct JobRepository {
     store: Arc<dyn JobStore>,
@@ -85,14 +86,67 @@ impl JobRepository {
     }
 
     /// Atomically claim the next queued job for a worker.
-    pub async fn claim_next_queued(&self) -> Result<Option<Job>, JobRepositoryError> {
+    pub async fn claim_next_queued(
+        &self,
+        worker_id: &str,
+        lease_duration: Duration,
+    ) -> Result<Option<Job>, JobRepositoryError> {
+        // Step 1: Compute the lease expiration timestamp.
+        let lease_expires_at = OffsetDateTime::now_utc() + lease_duration;
+
+        // Step 2: Ask the store to claim the next queued job.
         let row = self
             .store
-            .claim_next_queued()
+            .claim_next_queued(worker_id, lease_expires_at)
             .await
             .map_err(|_| JobRepositoryError::StorageUnavailable)?;
 
+        // Step 3: Map the stored row to the domain entity.
         Ok(row.map(JobRow::into_job))
+    }
+
+    /// List jobs whose leases have expired and should be re-queued.
+    pub async fn list_expired_leases(
+        &self,
+        now: Timestamp,
+        limit: u32,
+    ) -> Result<Vec<Job>, JobRepositoryError> {
+        // Step 1: Load expired lease rows from storage.
+        let rows = self
+            .store
+            .list_expired_leases(now.as_inner(), limit)
+            .await
+            .map_err(|_| JobRepositoryError::StorageUnavailable)?;
+
+        // Step 2: Map rows to domain entities.
+        Ok(rows.into_iter().map(JobRow::into_job).collect())
+    }
+
+    /// Record a heartbeat for a leased job, extending the lease expiration.
+    pub async fn heartbeat(
+        &self,
+        job_id: JobId,
+        worker_id: &str,
+        lease_duration: Duration,
+    ) -> Result<Job, JobRepositoryError> {
+        // Step 1: Compute the heartbeat and lease expiration timestamps.
+        let now = OffsetDateTime::now_utc();
+        let lease_expires_at = now + lease_duration;
+
+        // Step 2: Persist the heartbeat through the store.
+        let row = self
+            .store
+            .heartbeat(job_id.0, worker_id, now, lease_expires_at)
+            .await?;
+
+        // Step 3: Return the updated job.
+        Ok(row.into_job())
+    }
+
+    /// Return the current number of queued jobs available for workers.
+    pub async fn queue_depth(&self) -> Result<u64, JobRepositoryError> {
+        // Step 1: Ask the store for the current queue depth.
+        self.store.queue_depth().await
     }
 
     /// Fetch a job by its ID inside an existing transaction.
@@ -158,13 +212,20 @@ impl JobRepository {
     pub async fn claim_next_queued_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        worker_id: &str,
+        lease_duration: Duration,
     ) -> Result<Option<Job>, JobRepositoryError> {
+        // Step 1: Compute the lease expiration timestamp.
+        let lease_expires_at = OffsetDateTime::now_utc() + lease_duration;
+
+        // Step 2: Claim the job inside the provided transaction.
         let row = self
             .store
-            .claim_next_queued_tx(tx)
+            .claim_next_queued_tx(tx, worker_id, lease_expires_at)
             .await
             .map_err(|_| JobRepositoryError::StorageUnavailable)?;
 
+        // Step 3: Map the stored row to the domain entity.
         Ok(row.map(JobRow::into_job))
     }
 }
@@ -232,8 +293,34 @@ mod tests {
             Ok(self.list_due_result.lock().unwrap().clone())
         }
 
-        async fn claim_next_queued(&self) -> Result<Option<JobRow>, JobRepositoryError> {
+        async fn claim_next_queued(
+            &self,
+            _worker_id: &str,
+            _lease_expires_at: OffsetDateTime,
+        ) -> Result<Option<JobRow>, JobRepositoryError> {
             Ok(self.claim_result.lock().unwrap().take())
+        }
+
+        async fn list_expired_leases(
+            &self,
+            _now: OffsetDateTime,
+            _limit: u32,
+        ) -> Result<Vec<JobRow>, JobRepositoryError> {
+            Err(JobRepositoryError::InvalidInput)
+        }
+
+        async fn heartbeat(
+            &self,
+            _job_id: uuid::Uuid,
+            _worker_id: &str,
+            _heartbeat_at: OffsetDateTime,
+            _lease_expires_at: OffsetDateTime,
+        ) -> Result<JobRow, JobRepositoryError> {
+            Err(JobRepositoryError::InvalidInput)
+        }
+
+        async fn queue_depth(&self) -> Result<u64, JobRepositoryError> {
+            Err(JobRepositoryError::InvalidInput)
         }
 
         async fn insert_tx(
@@ -271,6 +358,8 @@ mod tests {
         async fn claim_next_queued_tx(
             &self,
             _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+            _worker_id: &str,
+            _lease_expires_at: OffsetDateTime,
         ) -> Result<Option<JobRow>, JobRepositoryError> {
             Err(JobRepositoryError::InvalidInput)
         }
@@ -372,7 +461,10 @@ mod tests {
         row.state = JobState::Assigned.as_str().to_string();
         *store.claim_result.lock().unwrap() = Some(row.clone());
 
-        let job = repo.claim_next_queued().await.unwrap();
+        let job = repo
+            .claim_next_queued("worker-1", time::Duration::seconds(30))
+            .await
+            .unwrap();
 
         assert!(job.is_some());
         assert_eq!(job.unwrap().id.0, row.id);

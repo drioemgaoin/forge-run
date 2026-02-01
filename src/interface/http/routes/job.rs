@@ -294,7 +294,9 @@ async fn retry_job(
             None,
             trace_id.clone(),
         ),
-        Err(RetryJobError::InvalidState) | Err(RetryJobError::Transition(_)) => problem(
+        Err(RetryJobError::InvalidState)
+        | Err(RetryJobError::RetryLimitReached)
+        | Err(RetryJobError::Transition(_)) => problem(
             StatusCode::CONFLICT,
             RFA_JOB_CONFLICT,
             Some("invalid state transition".to_string()),

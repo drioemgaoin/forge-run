@@ -24,6 +24,8 @@ impl ClaimNextJobUseCase {
     /// Claim the next queued job and emit the Assigned event atomically.
     pub async fn execute(
         ctx: &AppContext,
+        worker_id: &str,
+        lease_duration: time::Duration,
     ) -> Result<Option<ClaimNextJobResult>, ClaimNextJobError> {
         let job_repo = ctx.repos.job.clone();
         let event_repo = ctx.repos.event.clone();
@@ -33,9 +35,10 @@ impl ClaimNextJobUseCase {
             .with_tx(|tx| {
                 let job_repo = job_repo.clone();
                 let event_repo = event_repo.clone();
+                let worker_id = worker_id.to_string();
                 Box::pin(async move {
                     let Some(job) = job_repo
-                        .claim_next_queued_tx(tx)
+                        .claim_next_queued_tx(tx, &worker_id, lease_duration)
                         .await
                         .map_err(|e| DatabaseError::Query(format!("{e:?}")))?
                     else {
@@ -104,7 +107,9 @@ mod tests {
         job.updated_at = Timestamp::now_utc();
         let stored = ctx.repos.job.insert(&job).await.unwrap();
 
-        let result = ClaimNextJobUseCase::execute(&ctx).await.unwrap();
+        let result = ClaimNextJobUseCase::execute(&ctx, "worker-1", time::Duration::seconds(30))
+            .await
+            .unwrap();
         assert!(result.is_some());
         let result = result.unwrap();
         assert_eq!(result.job.state, JobState::Assigned);

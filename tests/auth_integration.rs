@@ -34,6 +34,13 @@ async fn given_missing_auth_when_accessing_protected_route_should_return_unautho
             redis: forge_run::config::Redis {
                 url: "redis://127.0.0.1/".to_string(),
             },
+            workers: forge_run::config::Workers {
+                default_count: 1,
+                max_count: 1,
+                poll_interval_ms: 250,
+                lease_timeout_seconds: 30,
+                scale_interval_ms: 1000,
+            },
         },
     };
 

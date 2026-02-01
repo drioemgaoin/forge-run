@@ -15,6 +15,9 @@ pub struct JobRow {
     pub executed_at: Option<OffsetDateTime>,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
+    pub lease_owner: Option<String>,
+    pub lease_expires_at: Option<OffsetDateTime>,
+    pub heartbeat_at: Option<OffsetDateTime>,
     pub callback_url: Option<String>,
     pub work_kind: String,
 }
@@ -32,6 +35,9 @@ impl JobRow {
             executed_at: job.executed_at.map(|t| t.as_inner()),
             created_at: job.created_at.as_inner(),
             updated_at: job.updated_at.as_inner(),
+            lease_owner: job.lease_owner.clone(),
+            lease_expires_at: job.lease_expires_at.map(|t| t.as_inner()),
+            heartbeat_at: job.heartbeat_at.map(|t| t.as_inner()),
             callback_url: job.callback_url.clone(),
             work_kind: job.working_kind.clone().unwrap_or_default(),
         }
@@ -65,6 +71,9 @@ impl JobRow {
             executed_at: self.executed_at.map(Timestamp::from),
             created_at: Timestamp::from(self.created_at),
             updated_at: Timestamp::from(self.updated_at),
+            lease_owner: self.lease_owner,
+            lease_expires_at: self.lease_expires_at.map(Timestamp::from),
+            heartbeat_at: self.heartbeat_at.map(Timestamp::from),
             callback_url: self.callback_url,
             working_kind: Some(self.work_kind),
         }
@@ -110,6 +119,12 @@ mod tests {
         assert_eq!(row.executed_at, job.executed_at.map(|t| t.as_inner()));
         assert_eq!(row.created_at, job.created_at.as_inner());
         assert_eq!(row.updated_at, job.updated_at.as_inner());
+        assert_eq!(row.lease_owner, job.lease_owner);
+        assert_eq!(
+            row.lease_expires_at,
+            job.lease_expires_at.map(|t| t.as_inner())
+        );
+        assert_eq!(row.heartbeat_at, job.heartbeat_at.map(|t| t.as_inner()));
         assert_eq!(row.callback_url, job.callback_url);
         assert_eq!(row.work_kind, "SUCCESS_FAST");
     }
@@ -128,6 +143,9 @@ mod tests {
             executed_at: Some(now),
             created_at: now,
             updated_at: now,
+            lease_owner: Some("worker-1".to_string()),
+            lease_expires_at: Some(now),
+            heartbeat_at: Some(now),
             callback_url: Some("https://example.com/callback".to_string()),
             work_kind: "PAYLOAD_SMALL".to_string(),
         };
@@ -144,6 +162,12 @@ mod tests {
         assert_eq!(job.executed_at, row.executed_at.map(Timestamp::from));
         assert_eq!(job.created_at, Timestamp::from(row.created_at));
         assert_eq!(job.updated_at, Timestamp::from(row.updated_at));
+        assert_eq!(job.lease_owner, row.lease_owner);
+        assert_eq!(
+            job.lease_expires_at,
+            row.lease_expires_at.map(Timestamp::from)
+        );
+        assert_eq!(job.heartbeat_at, row.heartbeat_at.map(Timestamp::from));
         assert_eq!(job.callback_url, row.callback_url);
         assert_eq!(job.working_kind, Some("PAYLOAD_SMALL".to_string()));
     }
@@ -162,6 +186,9 @@ mod tests {
             executed_at: None,
             created_at: now,
             updated_at: now,
+            lease_owner: None,
+            lease_expires_at: None,
+            heartbeat_at: None,
             callback_url: None,
             work_kind: "SUCCESS_FAST".to_string(),
         };

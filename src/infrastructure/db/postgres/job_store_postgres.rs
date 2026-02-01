@@ -32,6 +32,9 @@ impl JobStorePostgres {
                 executed_at,
                 created_at,
                 updated_at,
+                lease_owner,
+                lease_expires_at,
+                heartbeat_at,
                 callback_url,
                 work_kind
             FROM jobs
@@ -61,10 +64,13 @@ impl JobStorePostgres {
                 executed_at,
                 created_at,
                 updated_at,
+                lease_owner,
+                lease_expires_at,
+                heartbeat_at,
                 callback_url,
                 work_kind
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
             ON CONFLICT (id) DO UPDATE SET
                 id = EXCLUDED.id
             RETURNING
@@ -78,6 +84,9 @@ impl JobStorePostgres {
                 executed_at,
                 created_at,
                 updated_at,
+                lease_owner,
+                lease_expires_at,
+                heartbeat_at,
                 callback_url,
                 work_kind",
         )
@@ -91,6 +100,9 @@ impl JobStorePostgres {
         .bind(row.executed_at)
         .bind(row.created_at)
         .bind(row.updated_at)
+        .bind(&row.lease_owner)
+        .bind(row.lease_expires_at)
+        .bind(row.heartbeat_at)
         .bind(&row.callback_url)
         .bind(&row.work_kind)
         .fetch_one(&mut *conn)
@@ -111,7 +123,10 @@ impl JobStorePostgres {
                 outcome = $4,
                 outcome_reason = $5,
                 executed_at = $6,
-                updated_at = $7
+                updated_at = $7,
+                lease_owner = $8,
+                lease_expires_at = $9,
+                heartbeat_at = $10
             WHERE id = $1
             RETURNING
                 id,
@@ -124,6 +139,9 @@ impl JobStorePostgres {
                 executed_at,
                 created_at,
                 updated_at,
+                lease_owner,
+                lease_expires_at,
+                heartbeat_at,
                 callback_url,
                 work_kind",
         )
@@ -134,6 +152,9 @@ impl JobStorePostgres {
         .bind(&row.outcome_reason)
         .bind(row.executed_at)
         .bind(row.updated_at)
+        .bind(&row.lease_owner)
+        .bind(row.lease_expires_at)
+        .bind(row.heartbeat_at)
         .fetch_optional(&mut *conn)
         .await
         .map_err(|_| JobRepositoryError::StorageUnavailable)?;
@@ -178,6 +199,9 @@ impl JobStorePostgres {
                 executed_at,
                 created_at,
                 updated_at,
+                lease_owner,
+                lease_expires_at,
+                heartbeat_at,
                 callback_url,
                 work_kind
             FROM jobs
@@ -199,18 +223,25 @@ impl JobStorePostgres {
 
     async fn claim_next_queued_impl_conn(
         conn: &mut PgConnection,
+        worker_id: &str,
+        lease_expires_at: OffsetDateTime,
     ) -> Result<Option<JobRow>, JobRepositoryError> {
+        // Step 1: Claim the oldest queued job and attach a lease.
         let row = sqlx::query_as::<_, JobRow>(
             "WITH next_job AS (
                 SELECT id
                 FROM jobs
                 WHERE state = 'queued'
+                  AND (executed_at IS NULL OR executed_at <= NOW())
                 ORDER BY created_at ASC
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
             )
             UPDATE jobs
             SET state = 'assigned',
+                lease_owner = $1,
+                lease_expires_at = $2,
+                heartbeat_at = NOW(),
                 updated_at = NOW()
             WHERE id IN (SELECT id FROM next_job)
             RETURNING
@@ -224,9 +255,14 @@ impl JobStorePostgres {
                 executed_at,
                 created_at,
                 updated_at,
+                lease_owner,
+                lease_expires_at,
+                heartbeat_at,
                 callback_url,
                 work_kind",
         )
+        .bind(worker_id)
+        .bind(lease_expires_at)
         .fetch_optional(&mut *conn)
         .await
         .map_err(|_| JobRepositoryError::StorageUnavailable)?;
@@ -236,18 +272,25 @@ impl JobStorePostgres {
 
     async fn claim_next_queued_impl_tx(
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        worker_id: &str,
+        lease_expires_at: OffsetDateTime,
     ) -> Result<Option<JobRow>, JobRepositoryError> {
+        // Step 1: Claim the oldest queued job and attach a lease inside the transaction.
         let row = sqlx::query_as::<_, JobRow>(
             "WITH next_job AS (
                 SELECT id
                 FROM jobs
                 WHERE state = 'queued'
+                  AND (executed_at IS NULL OR executed_at <= NOW())
                 ORDER BY created_at ASC
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
             )
             UPDATE jobs
             SET state = 'assigned',
+                lease_owner = $1,
+                lease_expires_at = $2,
+                heartbeat_at = NOW(),
                 updated_at = NOW()
             WHERE id IN (SELECT id FROM next_job)
             RETURNING
@@ -261,14 +304,120 @@ impl JobStorePostgres {
                 executed_at,
                 created_at,
                 updated_at,
+                lease_owner,
+                lease_expires_at,
+                heartbeat_at,
                 callback_url,
                 work_kind",
         )
+        .bind(worker_id)
+        .bind(lease_expires_at)
         .fetch_optional(&mut **tx)
         .await
         .map_err(|_| JobRepositoryError::StorageUnavailable)?;
 
         Ok(row)
+    }
+
+    async fn list_expired_leases_impl_conn(
+        conn: &mut PgConnection,
+        now: OffsetDateTime,
+        limit: u32,
+    ) -> Result<Vec<JobRow>, JobRepositoryError> {
+        // Step 1: Fetch jobs whose leases have expired.
+        let rows = sqlx::query_as::<_, JobRow>(
+            "SELECT
+                id,
+                client_id,
+                job_type,
+                state,
+                attempt,
+                outcome,
+                outcome_reason,
+                executed_at,
+                created_at,
+                updated_at,
+                lease_owner,
+                lease_expires_at,
+                heartbeat_at,
+                callback_url,
+                work_kind
+            FROM jobs
+            WHERE state IN ('assigned', 'running')
+              AND lease_expires_at IS NOT NULL
+              AND lease_expires_at <= $1
+            ORDER BY lease_expires_at ASC
+            LIMIT $2",
+        )
+        .bind(now)
+        .bind(limit as i64)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(|_| JobRepositoryError::StorageUnavailable)?;
+
+        Ok(rows)
+    }
+
+    async fn heartbeat_impl_conn(
+        conn: &mut PgConnection,
+        job_id: uuid::Uuid,
+        worker_id: &str,
+        heartbeat_at: OffsetDateTime,
+        lease_expires_at: OffsetDateTime,
+    ) -> Result<JobRow, JobRepositoryError> {
+        // Step 1: Update heartbeat and extend the lease for the owning worker.
+        let row = sqlx::query_as::<_, JobRow>(
+            "UPDATE jobs
+            SET heartbeat_at = $3,
+                lease_expires_at = $4,
+                updated_at = $3
+            WHERE id = $1
+              AND lease_owner = $2
+              AND state IN ('assigned', 'running')
+            RETURNING
+                id,
+                client_id,
+                job_type,
+                state,
+                attempt,
+                outcome,
+                outcome_reason,
+                executed_at,
+                created_at,
+                updated_at,
+                lease_owner,
+                lease_expires_at,
+                heartbeat_at,
+                callback_url,
+                work_kind",
+        )
+        .bind(job_id)
+        .bind(worker_id)
+        .bind(heartbeat_at)
+        .bind(lease_expires_at)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(|_| JobRepositoryError::StorageUnavailable)?;
+
+        match row {
+            Some(row) => Ok(row),
+            None => Err(JobRepositoryError::NotFound),
+        }
+    }
+
+    async fn queue_depth_impl_conn(conn: &mut PgConnection) -> Result<u64, JobRepositoryError> {
+        // Step 1: Count jobs currently queued and eligible for execution.
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)
+            FROM jobs
+            WHERE state = 'queued'
+              AND (executed_at IS NULL OR executed_at <= NOW())",
+        )
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(|_| JobRepositoryError::StorageUnavailable)?;
+
+        Ok(count.max(0) as u64)
     }
 }
 
@@ -322,9 +471,20 @@ impl JobStore for JobStorePostgres {
     }
 
     /// Atomically claim the next queued job, if any.
-    async fn claim_next_queued(&self) -> Result<Option<JobRow>, JobRepositoryError> {
+    async fn claim_next_queued(
+        &self,
+        worker_id: &str,
+        lease_expires_at: OffsetDateTime,
+    ) -> Result<Option<JobRow>, JobRepositoryError> {
+        // Step 1: Acquire a connection and claim the next queued job.
+        let worker_id = worker_id.to_string();
         self.db
-            .with_conn(move |conn| Box::pin(Self::claim_next_queued_impl_conn(conn)))
+            .with_conn(move |conn| {
+                let worker_id = worker_id.clone();
+                Box::pin(async move {
+                    Self::claim_next_queued_impl_conn(conn, &worker_id, lease_expires_at).await
+                })
+            })
             .await
     }
 
@@ -368,8 +528,58 @@ impl JobStore for JobStorePostgres {
     async fn claim_next_queued_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        worker_id: &str,
+        lease_expires_at: OffsetDateTime,
     ) -> Result<Option<JobRow>, JobRepositoryError> {
-        Self::claim_next_queued_impl_tx(tx).await
+        // Step 1: Claim a queued job using the existing transaction.
+        Self::claim_next_queued_impl_tx(tx, worker_id, lease_expires_at).await
+    }
+
+    /// List jobs with expired leases that should be re-queued.
+    async fn list_expired_leases(
+        &self,
+        now: OffsetDateTime,
+        limit: u32,
+    ) -> Result<Vec<JobRow>, JobRepositoryError> {
+        // Step 1: Acquire a connection and fetch expired leases.
+        self.db
+            .with_conn(move |conn| Box::pin(Self::list_expired_leases_impl_conn(conn, now, limit)))
+            .await
+    }
+
+    /// Record a heartbeat for a leased job, extending the lease expiration.
+    async fn heartbeat(
+        &self,
+        job_id: uuid::Uuid,
+        worker_id: &str,
+        heartbeat_at: OffsetDateTime,
+        lease_expires_at: OffsetDateTime,
+    ) -> Result<JobRow, JobRepositoryError> {
+        // Step 1: Acquire a connection and apply the heartbeat update.
+        let worker_id = worker_id.to_string();
+        self.db
+            .with_conn(move |conn| {
+                let worker_id = worker_id.clone();
+                Box::pin(async move {
+                    Self::heartbeat_impl_conn(
+                        conn,
+                        job_id,
+                        &worker_id,
+                        heartbeat_at,
+                        lease_expires_at,
+                    )
+                    .await
+                })
+            })
+            .await
+    }
+
+    /// Return the current number of queued jobs available for workers.
+    async fn queue_depth(&self) -> Result<u64, JobRepositoryError> {
+        // Step 1: Acquire a connection and count queued jobs.
+        self.db
+            .with_conn(move |conn| Box::pin(Self::queue_depth_impl_conn(conn)))
+            .await
     }
 }
 
@@ -399,6 +609,9 @@ mod tests {
             executed_at: None,
             created_at: now,
             updated_at: now,
+            lease_owner: None,
+            lease_expires_at: None,
+            heartbeat_at: None,
             callback_url: None,
             work_kind: "SUCCESS_FAST".to_string(),
         }
@@ -532,11 +745,18 @@ mod tests {
         row.state = "queued".to_string();
         let stored = store.insert(&row).await.unwrap();
 
-        let claimed = store.claim_next_queued().await.unwrap();
+        let claimed = store
+            .claim_next_queued(
+                "worker-1",
+                OffsetDateTime::now_utc() + time::Duration::seconds(30),
+            )
+            .await
+            .unwrap();
 
         assert!(claimed.is_some());
         let claimed = claimed.unwrap();
         assert_eq!(claimed.id, stored.id);
         assert_eq!(claimed.state, "assigned");
+        assert_eq!(claimed.lease_owner.as_deref(), Some("worker-1"));
     }
 }

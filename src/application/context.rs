@@ -80,7 +80,33 @@ pub mod test_support {
             Err(JobRepositoryError::StorageUnavailable)
         }
 
-        async fn claim_next_queued(&self) -> Result<Option<JobRow>, JobRepositoryError> {
+        async fn claim_next_queued(
+            &self,
+            _worker_id: &str,
+            _lease_expires_at: time::OffsetDateTime,
+        ) -> Result<Option<JobRow>, JobRepositoryError> {
+            Err(JobRepositoryError::StorageUnavailable)
+        }
+
+        async fn list_expired_leases(
+            &self,
+            _now: time::OffsetDateTime,
+            _limit: u32,
+        ) -> Result<Vec<JobRow>, JobRepositoryError> {
+            Err(JobRepositoryError::StorageUnavailable)
+        }
+
+        async fn heartbeat(
+            &self,
+            _job_id: uuid::Uuid,
+            _worker_id: &str,
+            _heartbeat_at: time::OffsetDateTime,
+            _lease_expires_at: time::OffsetDateTime,
+        ) -> Result<JobRow, JobRepositoryError> {
+            Err(JobRepositoryError::StorageUnavailable)
+        }
+
+        async fn queue_depth(&self) -> Result<u64, JobRepositoryError> {
             Err(JobRepositoryError::StorageUnavailable)
         }
 
@@ -119,6 +145,8 @@ pub mod test_support {
         async fn claim_next_queued_tx(
             &self,
             _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+            _worker_id: &str,
+            _lease_expires_at: time::OffsetDateTime,
         ) -> Result<Option<JobRow>, JobRepositoryError> {
             Err(JobRepositoryError::StorageUnavailable)
         }
