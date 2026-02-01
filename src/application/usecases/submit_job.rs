@@ -3,12 +3,13 @@
 
 use crate::application::context::AppContext;
 use crate::domain::entities::event::Event;
-use crate::domain::entities::job::{Job, JobState, JobType};
+use crate::domain::entities::job::{Job, JobState, JobType, JobValidationError};
 use crate::domain::services::job_lifecycle::JobLifecycleError;
 use crate::domain::value_objects::ids::{ClientId, JobId};
 use crate::domain::value_objects::timestamps::Timestamp;
 use crate::infrastructure::db::database::DatabaseError;
 use crate::infrastructure::db::dto::IdempotencyKeyRow;
+use time::Duration;
 
 #[allow(dead_code)]
 /// Submits a job and persists the initial event (and idempotency key when provided).
@@ -44,7 +45,75 @@ impl SubmitJobUseCase {
         let work_kind = cmd.work_kind.clone();
         let idempotency_key = cmd.idempotency_key.clone();
         let now = Timestamp::now_utc();
-        // Step 1: Run the whole submit flow in a single transaction.
+        let skew = Duration::seconds(1);
+        // Step 0: Apply time-skew tolerance for deferred jobs before the transaction.
+        let execution_at = if let Some(execution_at) = execution_at {
+            let min_allowed = Timestamp::from(now.as_inner() - skew);
+            if execution_at.as_inner() < min_allowed.as_inner() {
+                return Err(JobLifecycleError::Validation(
+                    crate::domain::entities::job::JobValidationError::ExecutionAtInPast,
+                ));
+            }
+            if execution_at.as_inner() < now.as_inner() {
+                Some(now)
+            } else {
+                Some(execution_at)
+            }
+        } else {
+            None
+        };
+        // Step 1: Capture admission control settings for deferred jobs.
+        let tolerance_ms = ctx.settings.scheduler.tolerance_ms;
+        let capacity = ctx.settings.workers.max_count as u64;
+
+        // Step 2: If idempotency key exists, try to reuse existing job + event.
+        if let Some(key) = idempotency_key.as_ref()
+            && let Some(existing) = id_repo
+                .get(client_id.0, key)
+                .await
+                .map_err(|e| JobLifecycleError::Storage(format!("{e:?}")))?
+            && let Some(existing_job_id) = existing.job_id
+        {
+            let Some(job) = job_repo
+                .get(JobId(existing_job_id))
+                .await
+                .map_err(|e| JobLifecycleError::Storage(format!("{e:?}")))?
+            else {
+                return Err(JobLifecycleError::Storage(
+                    "idempotency_job_missing".to_string(),
+                ));
+            };
+            let Some(event_row) = event_repo
+                .get_by_job_id_and_name(JobId(existing_job_id), "job_created")
+                .await
+                .map_err(|e| JobLifecycleError::Storage(format!("{e:?}")))?
+            else {
+                return Err(JobLifecycleError::Storage(
+                    "idempotency_event_missing".to_string(),
+                ));
+            };
+            return Ok(SubmitJobResult {
+                job,
+                created_event: event_row.into_event(),
+            });
+        }
+
+        // Step 3: Enforce exact-time admission control for deferred jobs.
+        if let Some(execution_at) = execution_at {
+            let scheduled_count = ctx
+                .repos
+                .job
+                .count_scheduled_at(execution_at, tolerance_ms)
+                .await
+                .map_err(|e| JobLifecycleError::Storage(format!("{e:?}")))?;
+            if scheduled_count >= capacity {
+                return Err(JobLifecycleError::Validation(
+                    JobValidationError::ScheduleWindowFull,
+                ));
+            }
+        }
+
+        // Step 4: Run the whole submit flow in a single transaction.
         let (job, created_event) = ctx
             .repos
             .with_tx(|tx| {
@@ -56,7 +125,7 @@ impl SubmitJobUseCase {
                 let idempotency_key = idempotency_key.clone();
 
                 Box::pin(async move {
-                    // Step 2: If idempotency key exists, try to reuse existing job + event.
+                    // Step 5: If idempotency key exists, try to reuse existing job + event.
                     if let Some(key) = idempotency_key {
                         if let Some(existing) = id_repo
                             .get_tx(tx, client_id.0, &key)
@@ -89,7 +158,7 @@ impl SubmitJobUseCase {
                             return Ok((job, event_row.into_event()));
                         }
 
-                        // Step 3: Build the job + event for a new idempotency key.
+                        // Step 6: Build the job + event for a new idempotency key.
                         let job_id = JobId::new();
                         let job = if let Some(execution_at) = execution_at {
                             Job::new_deferred(
@@ -119,7 +188,7 @@ impl SubmitJobUseCase {
                             created_at: now.as_inner(),
                         };
 
-                        // Step 4: Persist job + event + idempotency entry atomically.
+                        // Step 7: Persist job + event + idempotency entry atomically.
                         job_repo
                             .insert_tx(tx, &job)
                             .await
@@ -133,7 +202,7 @@ impl SubmitJobUseCase {
                             .await
                             .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
 
-                        // Step 5: Enqueue instant jobs immediately.
+                        // Step 8: Enqueue instant jobs immediately.
                         if job.job_type == JobType::Instant {
                             let mut queued_job = job.clone();
                             queued_job.state = JobState::Queued;
@@ -160,7 +229,7 @@ impl SubmitJobUseCase {
                             Ok((job, created_event))
                         }
                     } else {
-                        // Step 5: No idempotency key, create job + event only.
+                        // Step 9: No idempotency key, create job + event only.
                         let job_id = JobId::new();
                         let job = if let Some(execution_at) = execution_at {
                             Job::new_deferred(
@@ -183,7 +252,7 @@ impl SubmitJobUseCase {
                             now,
                         );
 
-                        // Step 6: Persist job + event atomically.
+                        // Step 10: Persist job + event atomically.
                         job_repo
                             .insert_tx(tx, &job)
                             .await
@@ -193,7 +262,7 @@ impl SubmitJobUseCase {
                             .await
                             .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
 
-                        // Step 7: Enqueue instant jobs immediately.
+                        // Step 11: Enqueue instant jobs immediately.
                         if job.job_type == JobType::Instant {
                             let mut queued_job = job.clone();
                             queued_job.state = JobState::Queued;
@@ -235,7 +304,8 @@ mod tests {
     use super::{SubmitJobCommand, SubmitJobUseCase};
     use crate::application::context::test_support::test_context;
     use crate::domain::entities::client::Client;
-    use crate::domain::value_objects::ids::ClientId;
+    use crate::domain::value_objects::ids::{ClientId, EventId};
+    use crate::domain::value_objects::timestamps::Timestamp;
     use crate::infrastructure::db::postgres::PostgresDatabase;
     use crate::infrastructure::db::repositories::Repositories;
     use std::sync::Arc;
@@ -282,6 +352,126 @@ mod tests {
             .delete(client_id.0, "same-key")
             .await
             .unwrap();
+        ctx.repos.client.delete(client_id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn given_execution_at_within_skew_when_execute_should_accept() {
+        let Some(url) = test_db_url() else {
+            return;
+        };
+        let db = Arc::new(PostgresDatabase::connect(&url).await.unwrap());
+        let client_id = ClientId::new();
+
+        let mut ctx = test_context();
+        ctx.repos = Repositories::postgres(db.clone());
+        let client = Client::new(client_id);
+        ctx.repos.client.insert(&client).await.unwrap();
+
+        let execution_at =
+            Timestamp::from(Timestamp::now_utc().as_inner() - time::Duration::milliseconds(500));
+        let cmd = SubmitJobCommand {
+            client_id,
+            execution_at: Some(execution_at),
+            callback_url: None,
+            work_kind: Some("SUCCESS_FAST".to_string()),
+            idempotency_key: None,
+        };
+
+        let result = SubmitJobUseCase::execute(&ctx, cmd).await.unwrap();
+
+        assert!(result.job.executed_at.is_some());
+
+        let events = ctx.repos.event.list_by_job_id(result.job.id).await.unwrap();
+        for event in events {
+            ctx.repos.event.delete(EventId(event.id)).await.unwrap();
+        }
+        ctx.repos.job.delete(result.job.id).await.unwrap();
+        ctx.repos.client.delete(client_id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn given_execution_at_too_far_in_past_when_execute_should_return_error() {
+        let Some(url) = test_db_url() else {
+            return;
+        };
+        let db = Arc::new(PostgresDatabase::connect(&url).await.unwrap());
+        let client_id = ClientId::new();
+
+        let mut ctx = test_context();
+        ctx.repos = Repositories::postgres(db.clone());
+        let client = Client::new(client_id);
+        ctx.repos.client.insert(&client).await.unwrap();
+
+        let execution_at =
+            Timestamp::from(Timestamp::now_utc().as_inner() - time::Duration::seconds(5));
+        let cmd = SubmitJobCommand {
+            client_id,
+            execution_at: Some(execution_at),
+            callback_url: None,
+            work_kind: Some("SUCCESS_FAST".to_string()),
+            idempotency_key: None,
+        };
+
+        let result = SubmitJobUseCase::execute(&ctx, cmd).await;
+
+        assert!(matches!(
+            result,
+            Err(
+                crate::domain::services::job_lifecycle::JobLifecycleError::Validation(
+                    crate::domain::entities::job::JobValidationError::ExecutionAtInPast
+                )
+            )
+        ));
+
+        ctx.repos.client.delete(client_id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn given_schedule_window_full_when_execute_should_return_error() {
+        let Some(url) = test_db_url() else {
+            return;
+        };
+        let db = Arc::new(PostgresDatabase::connect(&url).await.unwrap());
+        let client_id = ClientId::new();
+
+        let mut ctx = test_context();
+        ctx.repos = Repositories::postgres(db.clone());
+        let client = Client::new(client_id);
+        ctx.repos.client.insert(&client).await.unwrap();
+
+        let execution_at =
+            Timestamp::from(Timestamp::now_utc().as_inner() + time::Duration::seconds(5));
+        let existing = crate::domain::entities::job::Job::new_deferred(
+            crate::domain::value_objects::ids::JobId::new(),
+            client_id,
+            execution_at,
+            None,
+            Some("SUCCESS_FAST".to_string()),
+        )
+        .unwrap();
+        ctx.repos.job.insert(&existing).await.unwrap();
+
+        let cmd = SubmitJobCommand {
+            client_id,
+            execution_at: Some(execution_at),
+            callback_url: None,
+            work_kind: Some("SUCCESS_FAST".to_string()),
+            idempotency_key: None,
+        };
+
+        let result = SubmitJobUseCase::execute(&ctx, cmd).await;
+
+        assert!(matches!(
+            result,
+            Err(
+                crate::domain::services::job_lifecycle::JobLifecycleError::Validation(
+                    crate::domain::entities::job::JobValidationError::ScheduleWindowFull
+                )
+            )
+        ));
+
+        ctx.repos.job.delete(existing.id).await.unwrap();
         ctx.repos.client.delete(client_id).await.unwrap();
     }
 }

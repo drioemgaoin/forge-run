@@ -111,6 +111,21 @@ mod tests {
             Err(JobRepositoryError::InvalidInput)
         }
 
+        async fn count_scheduled_at(
+            &self,
+            _scheduled_at: time::OffsetDateTime,
+            _tolerance_ms: u64,
+        ) -> Result<u64, JobRepositoryError> {
+            Err(JobRepositoryError::InvalidInput)
+        }
+
+        async fn next_due_time(
+            &self,
+            _now: time::OffsetDateTime,
+        ) -> Result<Option<time::OffsetDateTime>, JobRepositoryError> {
+            Err(JobRepositoryError::InvalidInput)
+        }
+
         async fn insert_tx(
             &self,
             _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,

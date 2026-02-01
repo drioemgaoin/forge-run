@@ -1,6 +1,7 @@
 use forge_run::application::context::AppContext;
 use forge_run::application::usecases::run_worker_once::{RunWorkerOnceUseCase, WorkerConfig};
 use forge_run::application::usecases::submit_job::{SubmitJobCommand, SubmitJobUseCase};
+use forge_run::config::Settings;
 use forge_run::domain::entities::client::Client;
 use forge_run::domain::entities::job::JobState;
 use forge_run::domain::services::job_lifecycle::JobLifecycle;
@@ -21,7 +22,30 @@ async fn given_queued_job_when_run_worker_once_should_finish_and_report() {
     let db = Arc::new(PostgresDatabase::connect(&url).await.unwrap());
     let repos = Repositories::postgres(db.clone());
     let lifecycle = JobLifecycle::new(repos.clone());
-    let ctx = AppContext::new(repos.clone(), Arc::new(lifecycle));
+    let settings = Settings {
+        server: forge_run::config::Server {
+            host: "127.0.0.1".to_string(),
+            port: 0,
+        },
+        db: forge_run::config::Db { url },
+        redis: forge_run::config::Redis {
+            url: "redis://127.0.0.1/".to_string(),
+        },
+        workers: forge_run::config::Workers {
+            default_count: 1,
+            max_count: 1,
+            poll_interval_ms: 250,
+            lease_timeout_seconds: 30,
+            scale_interval_ms: 1000,
+        },
+        scheduler: forge_run::config::Scheduler {
+            poll_interval_ms: 1000,
+            max_batch: 100,
+            skew_seconds: 1,
+            tolerance_ms: 100,
+        },
+    };
+    let ctx = AppContext::new(repos.clone(), Arc::new(lifecycle), settings.clone());
 
     let client_id = ClientId::new();
     repos.client.insert(&Client::new(client_id)).await.unwrap();
@@ -66,7 +90,30 @@ async fn given_retryable_job_when_run_worker_once_should_requeue_with_backoff() 
     let db = Arc::new(PostgresDatabase::connect(&url).await.unwrap());
     let repos = Repositories::postgres(db.clone());
     let lifecycle = JobLifecycle::new(repos.clone());
-    let ctx = AppContext::new(repos.clone(), Arc::new(lifecycle));
+    let settings = Settings {
+        server: forge_run::config::Server {
+            host: "127.0.0.1".to_string(),
+            port: 0,
+        },
+        db: forge_run::config::Db { url },
+        redis: forge_run::config::Redis {
+            url: "redis://127.0.0.1/".to_string(),
+        },
+        workers: forge_run::config::Workers {
+            default_count: 1,
+            max_count: 1,
+            poll_interval_ms: 250,
+            lease_timeout_seconds: 30,
+            scale_interval_ms: 1000,
+        },
+        scheduler: forge_run::config::Scheduler {
+            poll_interval_ms: 1000,
+            max_batch: 100,
+            skew_seconds: 1,
+            tolerance_ms: 100,
+        },
+    };
+    let ctx = AppContext::new(repos.clone(), Arc::new(lifecycle), settings.clone());
 
     let client_id = ClientId::new();
     repos.client.insert(&Client::new(client_id)).await.unwrap();

@@ -6,6 +6,7 @@ pub struct Settings {
     pub db: Db,
     pub redis: Redis,
     pub workers: Workers,
+    pub scheduler: Scheduler,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -31,6 +32,14 @@ pub struct Workers {
     pub poll_interval_ms: u64,
     pub lease_timeout_seconds: u64,
     pub scale_interval_ms: u64,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Scheduler {
+    pub poll_interval_ms: u64,
+    pub max_batch: u32,
+    pub skew_seconds: i64,
+    pub tolerance_ms: u64,
 }
 
 /// Load settings from `config/default.toml`, `config/<env>.toml`, and env overrides.

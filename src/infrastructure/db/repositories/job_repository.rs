@@ -149,6 +149,28 @@ impl JobRepository {
         self.store.queue_depth().await
     }
 
+    /// Count deferred jobs scheduled around a target time window.
+    pub async fn count_scheduled_at(
+        &self,
+        scheduled_at: Timestamp,
+        tolerance_ms: u64,
+    ) -> Result<u64, JobRepositoryError> {
+        // Step 1: Ask the store to count scheduled jobs in the window.
+        self.store
+            .count_scheduled_at(scheduled_at.as_inner(), tolerance_ms)
+            .await
+    }
+
+    /// Return the next scheduled deferred execution time, if any.
+    pub async fn next_due_time(
+        &self,
+        now: Timestamp,
+    ) -> Result<Option<Timestamp>, JobRepositoryError> {
+        // Step 1: Ask the store for the next due timestamp.
+        let next = self.store.next_due_time(now.as_inner()).await?;
+        Ok(next.map(Timestamp::from))
+    }
+
     /// Fetch a job by its ID inside an existing transaction.
     pub async fn get_tx(
         &self,
@@ -320,6 +342,21 @@ mod tests {
         }
 
         async fn queue_depth(&self) -> Result<u64, JobRepositoryError> {
+            Err(JobRepositoryError::InvalidInput)
+        }
+
+        async fn count_scheduled_at(
+            &self,
+            _scheduled_at: OffsetDateTime,
+            _tolerance_ms: u64,
+        ) -> Result<u64, JobRepositoryError> {
+            Err(JobRepositoryError::InvalidInput)
+        }
+
+        async fn next_due_time(
+            &self,
+            _now: OffsetDateTime,
+        ) -> Result<Option<OffsetDateTime>, JobRepositoryError> {
             Err(JobRepositoryError::InvalidInput)
         }
 

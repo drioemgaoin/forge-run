@@ -13,6 +13,7 @@ pub mod requeue_expired_leases;
 pub mod retry_job;
 pub mod revoke_api_key;
 pub mod run_worker_once;
+pub mod scheduler;
 pub mod submit_job;
 pub mod unregister_webhook;
 pub mod worker_loop;
