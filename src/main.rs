@@ -1,4 +1,5 @@
 use forge_run::application::context::AppContext;
+use forge_run::application::usecases::scheduler::SchedulerUseCase;
 use forge_run::application::usecases::worker_manager::WorkerManager;
 use forge_run::config;
 use forge_run::domain::services::job_lifecycle::JobLifecycle;
@@ -25,21 +26,42 @@ async fn main() {
     let lifecycle = JobLifecycle::new(repos.clone());
 
     // Step 4: Assemble shared application context and HTTP state.
-    let ctx = AppContext::new(repos, Arc::new(lifecycle));
-    let state = AppState {
-        ctx: Arc::new(ctx),
-        settings: settings.clone(),
-    };
+    let ctx = AppContext::new(repos, Arc::new(lifecycle), settings.clone());
+    let state = AppState { ctx: Arc::new(ctx) };
 
     // Step 5: Start the worker manager for background processing.
     let worker_manager = Arc::new(WorkerManager::new(state.ctx.clone(), &settings.workers));
     worker_manager.start().await.expect("start workers");
 
-    // Step 6: Build the HTTP app.
+    // Step 6: Run the scheduler once to handle missed schedules on startup.
+    let _ = SchedulerUseCase::run_once(
+        &state.ctx,
+        forge_run::domain::value_objects::timestamps::Timestamp::now_utc(),
+        settings.scheduler.max_batch,
+    )
+    .await;
+
+    // Step 7: Start the scheduler loop in the background.
+    let (scheduler_tx, scheduler_rx) = tokio::sync::watch::channel(false);
+    let _ = scheduler_tx;
+    let scheduler_ctx = state.ctx.clone();
+    let scheduler_poll = time::Duration::milliseconds(settings.scheduler.poll_interval_ms as i64);
+    let scheduler_limit = settings.scheduler.max_batch;
+    tokio::spawn(async move {
+        let _ = SchedulerUseCase::run_loop(
+            &scheduler_ctx,
+            scheduler_poll,
+            scheduler_limit,
+            scheduler_rx,
+        )
+        .await;
+    });
+
+    // Step 8: Build the HTTP app.
     let app = http::app(state);
     let bind_addr = format!("{}:{}", settings.server.host, settings.server.port);
 
-    // Step 7: Bind and serve.
+    // Step 9: Bind and serve.
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .expect("bind server");

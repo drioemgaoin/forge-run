@@ -14,3 +14,9 @@ max_count = 8
 poll_interval_ms = 250
 lease_timeout_seconds = 30
 scale_interval_ms = 1000
+
+[scheduler]
+poll_interval_ms = 1000
+max_batch = 100
+skew_seconds = 1
+tolerance_ms = 100

@@ -88,7 +88,7 @@ Tasks:
 - Delivery engine + retry policy (Est: 6–10h) | Tests: integration
 - Delivery observability (Est: 3–5h) | Tests: integration
 
-## Milestone 8 — Observability (Est: 16–24h)
+## yes i want (Est: 16–24h)
 
 Goal: metrics, logs, tracing, and dashboards.
 

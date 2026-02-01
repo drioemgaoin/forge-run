@@ -55,6 +55,17 @@ pub trait JobStore: Send + Sync {
     ) -> Result<JobRow, JobRepositoryError>;
     /// Return the current number of queued jobs available for workers.
     async fn queue_depth(&self) -> Result<u64, JobRepositoryError>;
+    /// Count deferred jobs scheduled around a target time window.
+    async fn count_scheduled_at(
+        &self,
+        scheduled_at: OffsetDateTime,
+        tolerance_ms: u64,
+    ) -> Result<u64, JobRepositoryError>;
+    /// Return the next scheduled deferred execution time, if any.
+    async fn next_due_time(
+        &self,
+        now: OffsetDateTime,
+    ) -> Result<Option<OffsetDateTime>, JobRepositoryError>;
 
     /// Create a job inside an existing transaction and return the stored row.
     async fn insert_tx(

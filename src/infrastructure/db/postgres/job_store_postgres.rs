@@ -419,6 +419,53 @@ impl JobStorePostgres {
 
         Ok(count.max(0) as u64)
     }
+
+    async fn count_scheduled_at_impl_conn(
+        conn: &mut PgConnection,
+        scheduled_at: OffsetDateTime,
+        tolerance_ms: u64,
+    ) -> Result<u64, JobRepositoryError> {
+        // Step 1: Count deferred jobs within the target time window.
+        let window_start = scheduled_at - time::Duration::milliseconds(tolerance_ms as i64);
+        let window_end = scheduled_at + time::Duration::milliseconds(tolerance_ms as i64);
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)
+            FROM jobs
+            WHERE job_type = 'deferred'
+              AND state = 'created'
+              AND executed_at IS NOT NULL
+              AND executed_at >= $1
+              AND executed_at <= $2",
+        )
+        .bind(window_start)
+        .bind(window_end)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(|_| JobRepositoryError::StorageUnavailable)?;
+
+        Ok(count.max(0) as u64)
+    }
+
+    async fn next_due_time_impl_conn(
+        conn: &mut PgConnection,
+        now: OffsetDateTime,
+    ) -> Result<Option<OffsetDateTime>, JobRepositoryError> {
+        // Step 1: Find the earliest deferred execution time in the future.
+        let next = sqlx::query_scalar::<_, Option<OffsetDateTime>>(
+            "SELECT MIN(executed_at)
+            FROM jobs
+            WHERE job_type = 'deferred'
+              AND state = 'created'
+              AND executed_at IS NOT NULL
+              AND executed_at >= $1",
+        )
+        .bind(now)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(|_| JobRepositoryError::StorageUnavailable)?;
+
+        Ok(next)
+    }
 }
 
 #[async_trait]
@@ -579,6 +626,35 @@ impl JobStore for JobStorePostgres {
         // Step 1: Acquire a connection and count queued jobs.
         self.db
             .with_conn(move |conn| Box::pin(Self::queue_depth_impl_conn(conn)))
+            .await
+    }
+
+    /// Count deferred jobs scheduled around a target time window.
+    async fn count_scheduled_at(
+        &self,
+        scheduled_at: OffsetDateTime,
+        tolerance_ms: u64,
+    ) -> Result<u64, JobRepositoryError> {
+        // Step 1: Acquire a connection and count scheduled jobs.
+        self.db
+            .with_conn(move |conn| {
+                Box::pin(Self::count_scheduled_at_impl_conn(
+                    conn,
+                    scheduled_at,
+                    tolerance_ms,
+                ))
+            })
+            .await
+    }
+
+    /// Return the next scheduled deferred execution time, if any.
+    async fn next_due_time(
+        &self,
+        now: OffsetDateTime,
+    ) -> Result<Option<OffsetDateTime>, JobRepositoryError> {
+        // Step 1: Acquire a connection and fetch the next due time.
+        self.db
+            .with_conn(move |conn| Box::pin(Self::next_due_time_impl_conn(conn, now)))
             .await
     }
 }

@@ -11,8 +11,8 @@ use crate::interface::http::dto::job::{
     JobResponse, JobStateResponse, SubmitJobRequest, SubmitJobResponse,
 };
 use crate::interface::http::problem::{
-    RFA_EXEC_IDEMPOTENCY_CONFLICT, RFA_JOB_CONFLICT, RFA_JOB_NOT_FOUND, RFA_JOB_VALIDATION_FAILED,
-    RFA_REQUEST_MALFORMED, RFA_STORAGE_DB_ERROR, problem,
+    RFA_EXEC_IDEMPOTENCY_CONFLICT, RFA_EXEC_SCHEDULE_FULL, RFA_JOB_CONFLICT, RFA_JOB_NOT_FOUND,
+    RFA_JOB_VALIDATION_FAILED, RFA_REQUEST_MALFORMED, RFA_STORAGE_DB_ERROR, problem,
 };
 use crate::interface::http::state::AppState;
 use crate::interface::http::trace::TraceId;
@@ -155,6 +155,15 @@ async fn submit_job(
             };
             (StatusCode::ACCEPTED, Json(response)).into_response()
         }
+        Err(crate::domain::services::job_lifecycle::JobLifecycleError::Validation(
+            crate::domain::entities::job::JobValidationError::ScheduleWindowFull,
+        )) => problem(
+            StatusCode::SERVICE_UNAVAILABLE,
+            RFA_EXEC_SCHEDULE_FULL,
+            Some("execution window is at capacity".to_string()),
+            None,
+            trace_id.clone(),
+        ),
         Err(crate::domain::services::job_lifecycle::JobLifecycleError::Validation(_)) => problem(
             StatusCode::BAD_REQUEST,
             RFA_JOB_VALIDATION_FAILED,

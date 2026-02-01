@@ -50,6 +50,7 @@ Example response:
 | RFA_JOB_VALIDATION_FAILED | 400 | Business rules failed. | Fix field values and retry. |
 | RFA_JOB_NOT_FOUND | 404 | Job or resource not found. | Verify the id and retry. |
 | RFA_JOB_CONFLICT | 409 | Conflict (e.g., invalid state transition). | Retry later or resolve conflict. |
+| RFA_EXEC_SCHEDULE_FULL | 503 | Execution window is at capacity for the requested time. | Pick another time or retry later. |
 | RFA_EXEC_IDEMPOTENCY_CONFLICT | 409 | Idempotency key mismatch or conflict. | Reuse the same payload or choose a new key. |
 | RFA_STORAGE_DB_ERROR | 503 | Storage/database error. | Retry later; if persistent, contact support. |
 | RFA_STORAGE_UNAVAILABLE | 503 | Dependency unavailable. | Retry later; if persistent, contact support. |

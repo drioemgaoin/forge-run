@@ -66,6 +66,7 @@ pub enum JobValidationError {
     MissingWorkKind,
     InvalidWorkKind,
     InvalidCallbackUrl,
+    ScheduleWindowFull,
 }
 
 #[derive(Debug, Clone)]

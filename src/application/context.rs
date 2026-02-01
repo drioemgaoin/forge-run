@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::config::Settings;
 use crate::domain::services::job_lifecycle::JobLifecycleService;
 use crate::infrastructure::db::repositories::Repositories;
 
@@ -7,14 +8,20 @@ use crate::infrastructure::db::repositories::Repositories;
 pub struct AppContext {
     pub repos: Repositories,
     pub job_lifecycle: Arc<dyn JobLifecycleService>,
+    pub settings: Settings,
 }
 
 impl AppContext {
     /// Build a new application context with shared repositories and services.
-    pub fn new(repos: Repositories, job_lifecycle: Arc<dyn JobLifecycleService>) -> Self {
+    pub fn new(
+        repos: Repositories,
+        job_lifecycle: Arc<dyn JobLifecycleService>,
+        settings: Settings,
+    ) -> Self {
         Self {
             repos,
             job_lifecycle,
+            settings,
         }
     }
 }
@@ -107,6 +114,21 @@ pub mod test_support {
         }
 
         async fn queue_depth(&self) -> Result<u64, JobRepositoryError> {
+            Err(JobRepositoryError::StorageUnavailable)
+        }
+
+        async fn count_scheduled_at(
+            &self,
+            _scheduled_at: time::OffsetDateTime,
+            _tolerance_ms: u64,
+        ) -> Result<u64, JobRepositoryError> {
+            Err(JobRepositoryError::StorageUnavailable)
+        }
+
+        async fn next_due_time(
+            &self,
+            _now: time::OffsetDateTime,
+        ) -> Result<Option<time::OffsetDateTime>, JobRepositoryError> {
             Err(JobRepositoryError::StorageUnavailable)
         }
 
@@ -541,10 +563,38 @@ pub mod test_support {
             ))),
             webhook: Arc::new(WebhookRepository::new(Arc::new(NullWebhookStore))),
         };
-        // Step 2: Return a context with a no-op lifecycle service.
+        // Step 2: Build default settings for test scenarios.
+        let settings = crate::config::Settings {
+            server: crate::config::Server {
+                host: "127.0.0.1".to_string(),
+                port: 0,
+            },
+            db: crate::config::Db {
+                url: "postgres://invalid".to_string(),
+            },
+            redis: crate::config::Redis {
+                url: "redis://127.0.0.1/".to_string(),
+            },
+            workers: crate::config::Workers {
+                default_count: 1,
+                max_count: 1,
+                poll_interval_ms: 250,
+                lease_timeout_seconds: 30,
+                scale_interval_ms: 1000,
+            },
+            scheduler: crate::config::Scheduler {
+                poll_interval_ms: 1000,
+                max_batch: 100,
+                skew_seconds: 1,
+                tolerance_ms: 100,
+            },
+        };
+
+        // Step 3: Return a context with a no-op lifecycle service.
         AppContext {
             repos,
             job_lifecycle: Arc::new(NullLifecycle),
+            settings,
         }
     }
 }

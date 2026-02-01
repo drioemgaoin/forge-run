@@ -1,67 +1,93 @@
-// Use case: cancel_job.
+// Use case: scheduler.
 
 use crate::application::context::AppContext;
-use crate::domain::entities::event::Event;
-use crate::domain::entities::job::{Job, JobState};
-use crate::domain::services::job_lifecycle::JobLifecycleError;
-use crate::domain::value_objects::ids::JobId;
+use crate::application::usecases::queue_due_jobs::{QueueDueJobsError, QueueDueJobsUseCase};
+use crate::domain::value_objects::timestamps::Timestamp;
+use time::Duration;
 
-/// Cancels a job if possible.
-pub struct CancelJobUseCase;
+/// Schedules deferred jobs by moving them into the queue when due.
+pub struct SchedulerUseCase;
 
 #[derive(Debug)]
-pub enum CancelJobError {
-    NotFound,
+pub enum SchedulerError {
     Storage(String),
-    Transition(JobLifecycleError),
+    Transition(QueueDueJobsError),
 }
 
-#[derive(Debug)]
-pub struct CancelJobResult {
-    pub job: Job,
-    pub event: Option<Event>,
-}
-
-impl CancelJobUseCase {
-    /// Cancel a job and emit a cancellation event.
-    pub async fn execute(
+impl SchedulerUseCase {
+    /// Run one scheduling pass and return the number of jobs queued.
+    pub async fn run_once(
         ctx: &AppContext,
-        job_id: JobId,
-    ) -> Result<CancelJobResult, CancelJobError> {
-        // Step 1: Fetch the job.
-        let row = ctx
-            .repos
-            .job
-            .get(job_id)
+        now: Timestamp,
+        limit: u32,
+    ) -> Result<usize, SchedulerError> {
+        // Step 1: Queue due deferred jobs.
+        let result = QueueDueJobsUseCase::execute(ctx, now, limit)
             .await
-            .map_err(|e| CancelJobError::Storage(format!("{e:?}")))?;
+            .map_err(SchedulerError::Transition)?;
 
-        let row = row.ok_or(CancelJobError::NotFound)?;
-        let mut job = row;
+        // Step 2: Return the number of jobs that were queued.
+        Ok(result.jobs.len())
+    }
 
-        // Step 2: If already canceled, return current state without emitting new event.
-        if job.state == JobState::Canceled {
-            return Ok(CancelJobResult { job, event: None });
+    /// Run the scheduler loop continuously at a fixed interval.
+    pub async fn run_loop(
+        ctx: &AppContext,
+        poll_interval: Duration,
+        limit: u32,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
+    ) -> Result<(), SchedulerError> {
+        // Step 1: Loop until shutdown is triggered.
+        loop {
+            if *shutdown.borrow() {
+                break;
+            }
+
+            // Step 2: Determine the next due time for deferred jobs.
+            let now = Timestamp::now_utc();
+            let next_due = ctx
+                .repos
+                .job
+                .next_due_time(now)
+                .await
+                .map_err(|e| SchedulerError::Storage(format!("{e:?}")))?;
+
+            // Step 3: If something is already due, run a scheduling pass immediately.
+            if let Some(next_due) = next_due
+                && next_due.as_inner() <= now.as_inner()
+            {
+                let _ = Self::run_once(ctx, now, limit).await?;
+                continue;
+            }
+
+            // Step 4: Sleep until the next due job or the regular poll interval.
+            let sleep_duration = if let Some(next_due) = next_due {
+                let diff = next_due.as_inner() - now.as_inner();
+                std::time::Duration::from_millis(diff.whole_milliseconds().max(0) as u64)
+            } else {
+                std::time::Duration::from_millis(poll_interval.whole_milliseconds().max(0) as u64)
+            };
+            tokio::select! {
+                _ = shutdown.changed() => {
+                    if *shutdown.borrow() {
+                        break;
+                    }
+                }
+                _ = tokio::time::sleep(sleep_duration) => {}
+            }
+
+            // Step 5: Run a scheduling pass after waking.
+            let _ = Self::run_once(ctx, Timestamp::now_utc(), limit).await?;
         }
 
-        // Step 3: Transition to Canceled (persists job + event).
-        let event = ctx
-            .job_lifecycle
-            .transition(&mut job, JobState::Canceled)
-            .await
-            .map_err(CancelJobError::Transition)?;
-
-        // Step 4: Return updated job and event.
-        Ok(CancelJobResult {
-            job,
-            event: Some(event),
-        })
+        // Step 6: Exit cleanly.
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{CancelJobError, CancelJobUseCase};
+    use super::SchedulerUseCase;
     use crate::application::context::test_support::test_context;
     use crate::domain::entities::event::{Event, EventName};
     use crate::domain::entities::job::{Job, JobState};
@@ -72,15 +98,16 @@ mod tests {
     use crate::infrastructure::db::stores::job_store::{JobRepositoryError, JobStore};
     use async_trait::async_trait;
     use std::sync::Mutex;
+    use time::OffsetDateTime;
 
     struct DummyStore {
-        row: Mutex<Option<JobRow>>,
+        rows: Mutex<Vec<JobRow>>,
     }
 
     #[async_trait]
     impl JobStore for DummyStore {
         async fn get(&self, _job_id: uuid::Uuid) -> Result<Option<JobRow>, JobRepositoryError> {
-            Ok(self.row.lock().unwrap().clone())
+            Err(JobRepositoryError::InvalidInput)
         }
 
         async fn insert(&self, _row: &JobRow) -> Result<JobRow, JobRepositoryError> {
@@ -97,23 +124,23 @@ mod tests {
 
         async fn list_due_deferred(
             &self,
-            _now: time::OffsetDateTime,
+            _now: OffsetDateTime,
             _limit: u32,
         ) -> Result<Vec<JobRow>, JobRepositoryError> {
-            Err(JobRepositoryError::InvalidInput)
+            Ok(self.rows.lock().unwrap().clone())
         }
 
         async fn claim_next_queued(
             &self,
             _worker_id: &str,
-            _lease_expires_at: time::OffsetDateTime,
+            _lease_expires_at: OffsetDateTime,
         ) -> Result<Option<JobRow>, JobRepositoryError> {
             Err(JobRepositoryError::InvalidInput)
         }
 
         async fn list_expired_leases(
             &self,
-            _now: time::OffsetDateTime,
+            _now: OffsetDateTime,
             _limit: u32,
         ) -> Result<Vec<JobRow>, JobRepositoryError> {
             Err(JobRepositoryError::InvalidInput)
@@ -123,8 +150,8 @@ mod tests {
             &self,
             _job_id: uuid::Uuid,
             _worker_id: &str,
-            _heartbeat_at: time::OffsetDateTime,
-            _lease_expires_at: time::OffsetDateTime,
+            _heartbeat_at: OffsetDateTime,
+            _lease_expires_at: OffsetDateTime,
         ) -> Result<JobRow, JobRepositoryError> {
             Err(JobRepositoryError::InvalidInput)
         }
@@ -135,7 +162,7 @@ mod tests {
 
         async fn count_scheduled_at(
             &self,
-            _scheduled_at: time::OffsetDateTime,
+            _scheduled_at: OffsetDateTime,
             _tolerance_ms: u64,
         ) -> Result<u64, JobRepositoryError> {
             Err(JobRepositoryError::InvalidInput)
@@ -143,8 +170,8 @@ mod tests {
 
         async fn next_due_time(
             &self,
-            _now: time::OffsetDateTime,
-        ) -> Result<Option<time::OffsetDateTime>, JobRepositoryError> {
+            _now: OffsetDateTime,
+        ) -> Result<Option<OffsetDateTime>, JobRepositoryError> {
             Err(JobRepositoryError::InvalidInput)
         }
 
@@ -184,7 +211,7 @@ mod tests {
             &self,
             _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
             _worker_id: &str,
-            _lease_expires_at: time::OffsetDateTime,
+            _lease_expires_at: OffsetDateTime,
         ) -> Result<Option<JobRow>, JobRepositoryError> {
             Err(JobRepositoryError::InvalidInput)
         }
@@ -221,13 +248,12 @@ mod tests {
             next_state: JobState,
         ) -> Result<Event, JobLifecycleError> {
             job.state = next_state;
-            job.updated_at = Timestamp::now_utc();
             Ok(Event {
                 id: EventId::new(),
                 job_id: job.id,
-                event_name: EventName::JobCanceled,
+                event_name: EventName::JobQueued,
                 prev_state: JobState::Created,
-                next_state: JobState::Canceled,
+                next_state: JobState::Queued,
                 timestamp: Timestamp::now_utc(),
             })
         }
@@ -243,24 +269,24 @@ mod tests {
         }
     }
 
-    fn sample_job_row(state: JobState, job_id: JobId) -> JobRow {
-        let mut job = Job::new_instant(
-            job_id,
+    fn sample_row() -> JobRow {
+        let now = Timestamp::now_utc();
+        let execution_at = Timestamp::from(now.as_inner() + time::Duration::seconds(1));
+        let job = Job::new_deferred(
+            JobId::new(),
             ClientId::new(),
+            execution_at,
             None,
             Some("SUCCESS_FAST".to_string()),
         )
         .unwrap();
-        job.state = state;
         JobRow::from_job(&job)
     }
 
     #[tokio::test]
-    async fn given_active_job_when_execute_should_cancel_and_emit_event() {
-        let job_id = JobId::new();
-        let row = sample_job_row(JobState::Created, job_id);
+    async fn given_due_jobs_when_run_once_should_return_count() {
         let store = DummyStore {
-            row: Mutex::new(Some(row)),
+            rows: Mutex::new(vec![sample_row(), sample_row()]),
         };
         let mut ctx = test_context();
         ctx.repos.job = std::sync::Arc::new(
@@ -270,48 +296,10 @@ mod tests {
         );
         ctx.job_lifecycle = std::sync::Arc::new(DummyLifecycle);
 
-        let result = CancelJobUseCase::execute(&ctx, job_id).await.unwrap();
+        let count = SchedulerUseCase::run_once(&ctx, Timestamp::now_utc(), 10)
+            .await
+            .unwrap();
 
-        assert_eq!(result.job.state, JobState::Canceled);
-        assert!(result.event.is_some());
-    }
-
-    #[tokio::test]
-    async fn given_canceled_job_when_execute_should_return_without_event() {
-        let job_id = JobId::new();
-        let row = sample_job_row(JobState::Canceled, job_id);
-        let store = DummyStore {
-            row: Mutex::new(Some(row)),
-        };
-        let mut ctx = test_context();
-        ctx.repos.job = std::sync::Arc::new(
-            crate::infrastructure::db::repositories::job_repository::JobRepository::new(
-                std::sync::Arc::new(store),
-            ),
-        );
-        ctx.job_lifecycle = std::sync::Arc::new(DummyLifecycle);
-
-        let result = CancelJobUseCase::execute(&ctx, job_id).await.unwrap();
-
-        assert_eq!(result.job.state, JobState::Canceled);
-        assert!(result.event.is_none());
-    }
-
-    #[tokio::test]
-    async fn given_missing_job_when_execute_should_return_not_found() {
-        let store = DummyStore {
-            row: Mutex::new(None),
-        };
-        let mut ctx = test_context();
-        ctx.repos.job = std::sync::Arc::new(
-            crate::infrastructure::db::repositories::job_repository::JobRepository::new(
-                std::sync::Arc::new(store),
-            ),
-        );
-        ctx.job_lifecycle = std::sync::Arc::new(DummyLifecycle);
-
-        let result = CancelJobUseCase::execute(&ctx, JobId::new()).await;
-
-        assert!(matches!(result, Err(CancelJobError::NotFound)));
+        assert_eq!(count, 2);
     }
 }
