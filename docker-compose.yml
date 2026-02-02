@@ -1,0 +1,126 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      APP_ENV: dev
+      FORGERUN__SERVER__HOST: 0.0.0.0
+      FORGERUN__SERVER__PORT: 8080
+      FORGERUN__DB__URL: postgres://postgres:postgres@postgres:5432/forge_run
+      FORGERUN__REDIS__URL: redis://redis:6379/
+      FORGERUN__OBSERVABILITY__ENABLE_TRACING: "false"
+      FORGERUN__OBSERVABILITY__ENABLE_METRICS: "true"
+      FORGERUN__OBSERVABILITY__LOG_FILE_PATH: /var/log/forge-run/forge-run.log
+      FORGERUN__OBSERVABILITY__OTLP_ENDPOINT: http://otel-collector:4317
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./config:/app/config:ro
+      - ./migrations:/app/migrations:ro
+      - ./logs:/var/log/forge-run
+
+  migrate:
+    image: postgres:16
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: postgres
+    volumes:
+      - ./migrations:/migrations:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        for f in $(ls /migrations/*.sql | sort); do
+          echo "Applying $${f}";
+          psql -h postgres -U postgres -d forge_run -v ON_ERROR_STOP=1 -f "$${f}";
+        done
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: forge_run
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d forge_run"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - forge_run_pg:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: ["observability"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: ["observability"]
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./config/observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./config/observability/grafana-dashboard.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./config/observability/grafana-dashboard.json:/etc/grafana/provisioning/dashboards/forge-run.json:ro
+
+  tempo:
+    image: grafana/tempo:latest
+    profiles: ["observability"]
+    ports:
+      - "3200:3200"
+    volumes:
+      - ./config/observability/tempo.yml:/etc/tempo.yml:ro
+    command: ["-config.file=/etc/tempo.yml"]
+
+  loki:
+    image: grafana/loki:latest
+    profiles: ["observability"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./config/observability/loki.yml:/etc/loki/local-config.yaml:ro
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+
+  promtail:
+    image: grafana/promtail:latest
+    profiles: ["observability"]
+    volumes:
+      - ./config/observability/promtail.yml:/etc/promtail/config.yml:ro
+      - ./logs:/var/log/forge-run:ro
+    command: ["-config.file=/etc/promtail/config.yml"]
+
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    profiles: ["observability"]
+    volumes:
+      - ./config/observability/otel-collector.yml:/etc/otel-collector.yml:ro
+    command: ["--config=/etc/otel-collector.yml"]
+
+volumes:
+  forge_run_pg:
