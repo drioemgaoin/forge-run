@@ -9,7 +9,9 @@ use crate::domain::value_objects::ids::{ClientId, JobId};
 use crate::domain::value_objects::timestamps::Timestamp;
 use crate::infrastructure::db::database::DatabaseError;
 use crate::infrastructure::db::dto::{IdempotencyKeyRow, WebhookDeliveryRow};
+use metrics::counter;
 use time::Duration;
+use tracing::{info, instrument};
 
 #[allow(dead_code)]
 /// Submits a job and persists the initial event (and idempotency key when provided).
@@ -33,6 +35,7 @@ pub struct SubmitJobResult {
 
 impl SubmitJobUseCase {
     /// Submit a job and persist both the job and its `JobCreated` event.
+    #[instrument(skip(ctx, cmd))]
     pub async fn execute(
         ctx: &AppContext,
         cmd: SubmitJobCommand,
@@ -96,6 +99,12 @@ impl SubmitJobUseCase {
                     "idempotency_event_missing".to_string(),
                 ));
             };
+            counter!("jobs_submitted_total").increment(1);
+            info!(
+                job_id = %job.id.0,
+                client_id = %job.client_id.0,
+                "job_submit_idempotent"
+            );
             return Ok(SubmitJobResult {
                 job,
                 created_event: event_row.into_event(),
@@ -349,7 +358,15 @@ impl SubmitJobUseCase {
             .await
             .map_err(|e| JobLifecycleError::Storage(e.to_string()))?;
 
-        // Step 7: Return the created job and event.
+        // Step 7: Emit submission metrics.
+        counter!("jobs_submitted_total").increment(1);
+        info!(
+            job_id = %job.id.0,
+            client_id = %job.client_id.0,
+            "job_submitted"
+        );
+
+        // Step 8: Return the created job and event.
         Ok(SubmitJobResult { job, created_event })
     }
 }

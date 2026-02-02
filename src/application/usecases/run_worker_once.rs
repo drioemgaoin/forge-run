@@ -9,7 +9,9 @@ use crate::domain::services::job_lifecycle::JobLifecycleError;
 use crate::domain::value_objects::timestamps::Timestamp;
 use crate::domain::workflows::retry_policy::RetryPolicy;
 use crate::domain::workflows::work_catalog::{WorkCatalog, WorkPlan};
+use metrics::counter;
 use time::Duration;
+use tracing::{info, instrument};
 
 /// Configuration for worker execution and retries.
 #[derive(Debug, Clone)]
@@ -48,6 +50,7 @@ pub struct RunWorkerOnceResult {
 
 impl RunWorkerOnceUseCase {
     /// Claim the next job, execute it, and persist all state transitions.
+    #[instrument(skip(ctx, config))]
     pub async fn execute(
         ctx: &AppContext,
         worker_id: &str,
@@ -91,7 +94,24 @@ impl RunWorkerOnceUseCase {
         let mut all_events = events;
         all_events.extend(result.events);
 
-        // Step 5: Return the final job, events, and optional report.
+        // Step 5: Emit execution metrics and logs.
+        let outcome = result.job.outcome.map(|o| o.as_str().to_string());
+        counter!("jobs_processed_total").increment(1);
+        if result.job.state == JobState::Succeeded {
+            counter!("jobs_succeeded_total").increment(1);
+        } else if result.job.state == JobState::Failed {
+            counter!("jobs_failed_total").increment(1);
+        } else if result.job.state == JobState::Canceled {
+            counter!("jobs_canceled_total").increment(1);
+        }
+        info!(
+            job_id = %result.job.id.0,
+            state = %result.job.state.as_str(),
+            outcome = outcome.as_deref().unwrap_or(""),
+            "job_execution_complete"
+        );
+
+        // Step 6: Return the final job, events, and optional report.
         Ok(Some(RunWorkerOnceResult {
             job: result.job,
             events: all_events,

@@ -21,7 +21,7 @@ pub async fn auth_middleware(
     // Step 1: allow unauthenticated public endpoints.
     let path = req.uri().path();
     let method = req.method().as_str();
-    if path == "/health" {
+    if path == "/health" || path == "/ready" || path == "/metrics" {
         return Ok(next.run(req).await);
     }
     if method == "POST" && path == "/clients" {

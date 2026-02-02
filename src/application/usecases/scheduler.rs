@@ -3,7 +3,9 @@
 use crate::application::context::AppContext;
 use crate::application::usecases::queue_due_jobs::{QueueDueJobsError, QueueDueJobsUseCase};
 use crate::domain::value_objects::timestamps::Timestamp;
+use metrics::{counter, gauge};
 use time::Duration;
+use tracing::{info, instrument};
 
 /// Schedules deferred jobs by moving them into the queue when due.
 pub struct SchedulerUseCase;
@@ -16,6 +18,7 @@ pub enum SchedulerError {
 
 impl SchedulerUseCase {
     /// Run one scheduling pass and return the number of jobs queued.
+    #[instrument(skip(ctx))]
     pub async fn run_once(
         ctx: &AppContext,
         now: Timestamp,
@@ -26,11 +29,20 @@ impl SchedulerUseCase {
             .await
             .map_err(SchedulerError::Transition)?;
 
-        // Step 2: Return the number of jobs that were queued.
+        let queued = result.jobs.len();
+
+        // Step 2: Emit metrics and return the number of jobs that were queued.
+        counter!("scheduled_jobs_total").increment(queued as u64);
+        if let Ok(depth) = ctx.repos.job.queue_depth().await {
+            gauge!("queue_depth").set(depth as f64);
+        }
+        info!(queued, "scheduler_pass_complete");
+
         Ok(result.jobs.len())
     }
 
     /// Run the scheduler loop continuously at a fixed interval.
+    #[instrument(skip(ctx, shutdown))]
     pub async fn run_loop(
         ctx: &AppContext,
         poll_interval: Duration,

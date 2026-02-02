@@ -52,9 +52,20 @@ async fn given_missing_auth_when_accessing_protected_route_should_return_unautho
             backoff_initial_ms: 500,
             backoff_max_ms: 30000,
         },
+        observability: forge_run::config::Observability {
+            service_name: "forge-run".to_string(),
+            enable_tracing: false,
+            otlp_endpoint: "http://127.0.0.1:4317".to_string(),
+            enable_metrics: false,
+
+            log_file_path: None,
+        },
     };
     let ctx = AppContext::new(repos, Arc::new(lifecycle), settings.clone());
-    let state = AppState { ctx: Arc::new(ctx) };
+    let state = AppState {
+        ctx: Arc::new(ctx),
+        metrics: None,
+    };
 
     let response = http::app(state)
         .oneshot(

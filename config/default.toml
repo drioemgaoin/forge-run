@@ -28,3 +28,10 @@ request_timeout_ms = 2000
 max_attempts = 5
 backoff_initial_ms = 500
 backoff_max_ms = 30000
+
+[observability]
+service_name = "forge-run"
+enable_tracing = true
+otlp_endpoint = "http://127.0.0.1:4317"
+enable_metrics = true
+log_file_path = ""

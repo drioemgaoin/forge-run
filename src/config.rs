@@ -8,6 +8,7 @@ pub struct Settings {
     pub workers: Workers,
     pub scheduler: Scheduler,
     pub webhook_delivery: WebhookDelivery,
+    pub observability: Observability,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -51,6 +52,15 @@ pub struct WebhookDelivery {
     pub max_attempts: u32,
     pub backoff_initial_ms: u64,
     pub backoff_max_ms: u64,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Observability {
+    pub service_name: String,
+    pub enable_tracing: bool,
+    pub otlp_endpoint: String,
+    pub enable_metrics: bool,
+    pub log_file_path: Option<String>,
 }
 
 /// Load settings from `config/default.toml`, `config/<env>.toml`, and env overrides.
