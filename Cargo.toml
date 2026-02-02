@@ -15,6 +15,7 @@ sqlx = { version = "0.7", features = [
     "uuid",
     "time",
 ] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 redis = { version = "0.25", features = ["tokio-comp"] }
 time = { version = "0.3.46", features = ["formatting", "serde"] }
 uuid = { version = "1.19.0", features = ["v4", "serde"] }

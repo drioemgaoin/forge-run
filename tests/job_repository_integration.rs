@@ -23,6 +23,7 @@ fn sample_instant_job() -> Job {
         JobId::new(),
         ClientId::new(),
         None,
+        None,
         Some("SUCCESS_FAST".to_string()),
     )
     .unwrap()
@@ -35,6 +36,7 @@ fn sample_deferred_job() -> Job {
         JobId::new(),
         ClientId::new(),
         execution_at,
+        None,
         None,
         Some("SUCCESS_FAST".to_string()),
     )

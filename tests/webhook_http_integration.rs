@@ -43,10 +43,27 @@ impl WebhookStore for DummyWebhookStore {
         Ok(self.rows.lock().unwrap().get(&webhook_id).cloned())
     }
 
+    async fn get_default_for_client(
+        &self,
+        _client_id: uuid::Uuid,
+    ) -> Result<Option<WebhookRow>, WebhookRepositoryError> {
+        let rows = self.rows.lock().unwrap();
+        Ok(rows.values().find(|row| row.is_default).cloned())
+    }
+
     async fn insert(&self, row: &WebhookRow) -> Result<WebhookRow, WebhookRepositoryError> {
         let mut urls = self.urls.lock().unwrap();
         if urls.contains_key(&row.url) {
             return Err(WebhookRepositoryError::Conflict);
+        }
+        if row.is_default {
+            let rows = self.rows.lock().unwrap();
+            if rows
+                .values()
+                .any(|stored| stored.client_id == row.client_id && stored.is_default)
+            {
+                return Err(WebhookRepositoryError::Conflict);
+            }
         }
         urls.insert(row.url.clone(), row.id);
         self.rows.lock().unwrap().insert(row.id, row.clone());
@@ -91,6 +108,14 @@ async fn setup_state() -> Option<(AppState, Arc<PostgresDatabase>)> {
             max_batch: 100,
             skew_seconds: 1,
             tolerance_ms: 100,
+        },
+        webhook_delivery: forge_run::config::WebhookDelivery {
+            poll_interval_ms: 1000,
+            batch_size: 100,
+            request_timeout_ms: 2000,
+            max_attempts: 5,
+            backoff_initial_ms: 500,
+            backoff_max_ms: 30000,
         },
     };
     let ctx = AppContext::new(repos, Arc::new(lifecycle), settings.clone());
@@ -162,9 +187,11 @@ async fn given_valid_request_when_register_webhook_should_return_created() {
     let register = http::app(state)
         .oneshot(bearer_request(
             "POST",
-            "/webhooks".to_string(),
+            format!("/clients/{client_id}/webhooks"),
             &api_key,
-            Body::from(r#"{"url":"https://example.com/hook","events":["job_created"]}"#),
+            Body::from(
+                r#"{"url":"https://example.com/hook","events":["job_created"],"is_default":true}"#,
+            ),
         ))
         .await
         .unwrap();
@@ -186,9 +213,11 @@ async fn given_duplicate_webhook_when_register_should_return_conflict() {
     let first = http::app(state.clone())
         .oneshot(bearer_request(
             "POST",
-            "/webhooks".to_string(),
+            format!("/clients/{client_id}/webhooks"),
             &api_key,
-            Body::from(r#"{"url":"https://example.com/hook","events":["job_created"]}"#),
+            Body::from(
+                r#"{"url":"https://example.com/hook","events":["job_created"],"is_default":true}"#,
+            ),
         ))
         .await
         .unwrap();
@@ -197,9 +226,11 @@ async fn given_duplicate_webhook_when_register_should_return_conflict() {
     let second = http::app(state)
         .oneshot(bearer_request(
             "POST",
-            "/webhooks".to_string(),
+            format!("/clients/{client_id}/webhooks"),
             &api_key,
-            Body::from(r#"{"url":"https://example.com/hook","events":["job_created"]}"#),
+            Body::from(
+                r#"{"url":"https://example.com/hook","events":["job_created"],"is_default":true}"#,
+            ),
         ))
         .await
         .unwrap();
@@ -223,7 +254,7 @@ async fn given_unknown_webhook_when_unregister_should_return_not_found() {
     let response = http::app(state)
         .oneshot(bearer_request(
             "DELETE",
-            format!("/webhooks/{}", uuid::Uuid::new_v4()),
+            format!("/clients/{client_id}/webhooks/{}", uuid::Uuid::new_v4()),
             &api_key,
             Body::empty(),
         ))
@@ -249,9 +280,11 @@ async fn given_existing_webhook_when_unregister_should_delete() {
     let register = http::app(state.clone())
         .oneshot(bearer_request(
             "POST",
-            "/webhooks".to_string(),
+            format!("/clients/{client_id}/webhooks"),
             &api_key,
-            Body::from(r#"{"url":"https://example.com/hook","events":["job_created"]}"#),
+            Body::from(
+                r#"{"url":"https://example.com/hook","events":["job_created"],"is_default":true}"#,
+            ),
         ))
         .await
         .unwrap();
@@ -264,7 +297,7 @@ async fn given_existing_webhook_when_unregister_should_delete() {
     let delete = http::app(state)
         .oneshot(bearer_request(
             "DELETE",
-            format!("/webhooks/{webhook_id}"),
+            format!("/clients/{client_id}/webhooks/{webhook_id}"),
             &api_key,
             Body::empty(),
         ))

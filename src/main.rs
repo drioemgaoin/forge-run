@@ -1,4 +1,5 @@
 use forge_run::application::context::AppContext;
+use forge_run::application::usecases::deliver_webhooks::DeliverWebhooksUseCase;
 use forge_run::application::usecases::scheduler::SchedulerUseCase;
 use forge_run::application::usecases::worker_manager::WorkerManager;
 use forge_run::config;
@@ -57,11 +58,24 @@ async fn main() {
         .await;
     });
 
-    // Step 8: Build the HTTP app.
+    // Step 8: Start the webhook delivery loop in the background.
+    let (webhook_tx, webhook_rx) = tokio::sync::watch::channel(false);
+    let _ = webhook_tx;
+    let webhook_ctx = state.ctx.clone();
+    let webhook_poll =
+        time::Duration::milliseconds(settings.webhook_delivery.poll_interval_ms as i64);
+    let webhook_limit = settings.webhook_delivery.batch_size;
+    tokio::spawn(async move {
+        let _ =
+            DeliverWebhooksUseCase::run_loop(&webhook_ctx, webhook_poll, webhook_limit, webhook_rx)
+                .await;
+    });
+
+    // Step 9: Build the HTTP app.
     let app = http::app(state);
     let bind_addr = format!("{}:{}", settings.server.host, settings.server.port);
 
-    // Step 9: Bind and serve.
+    // Step 10: Bind and serve.
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .expect("bind server");

@@ -5,6 +5,7 @@ pub mod factory;
 pub mod idempotency_key_repository;
 pub mod job_repository;
 pub mod report_repository;
+pub mod webhook_delivery_repository;
 pub mod webhook_repository;
 
 pub use factory::Repositories;

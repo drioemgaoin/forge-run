@@ -22,6 +22,7 @@ async fn given_instant_job_when_created_should_persist_job_and_event() {
             JobId::new(),
             ClientId::new(),
             None,
+            None,
             Some("SUCCESS_FAST".to_string()),
         )
         .await

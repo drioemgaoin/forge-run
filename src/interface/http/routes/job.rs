@@ -134,6 +134,7 @@ async fn submit_job(
             client_id,
             execution_at,
             callback_url: payload.callback.clone(),
+            callback_events: payload.callback_events.clone(),
             work_kind,
             idempotency_key,
         },
@@ -369,6 +370,7 @@ async fn get_job(
                     .unwrap_or_default(),
                 attempt: job.attempt as i64,
                 callback: job.callback_url.clone(),
+                callback_events: job.callback_events.clone(),
             };
             (StatusCode::OK, Json(response)).into_response()
         }

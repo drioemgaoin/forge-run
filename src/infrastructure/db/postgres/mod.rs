@@ -5,5 +5,7 @@ pub mod event_store_postgres;
 pub mod idempotency_key_store_postgres;
 pub mod job_store_postgres;
 pub mod report_store_postgres;
+pub mod webhook_delivery_store_postgres;
+pub mod webhook_store_postgres;
 
 pub use database::PostgresDatabase;

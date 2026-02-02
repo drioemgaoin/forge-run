@@ -24,17 +24,34 @@ use time::format_description::well_known::Rfc3339;
 /// Builds webhook routes.
 pub fn router() -> axum::Router<AppState> {
     axum::Router::new()
-        .route("/webhooks", post(register_webhook))
-        .route("/webhooks/:webhook_id", delete(unregister_webhook))
+        .route("/clients/:client_id/webhooks", post(register_webhook))
+        .route(
+            "/clients/:client_id/webhooks/:webhook_id",
+            delete(unregister_webhook),
+        )
 }
 
 /// Registers a webhook.
 async fn register_webhook(
     State(state): State<AppState>,
     Extension(trace_id): Extension<TraceId>,
+    Path(client_id): Path<String>,
     Json(payload): Json<RegisterWebhookRequest>,
 ) -> Response {
     let trace_id = Some(trace_id.0.clone());
+    // Step 1: Parse the client id.
+    let client_id = match uuid::Uuid::parse_str(&client_id) {
+        Ok(id) => id,
+        Err(_) => {
+            return problem(
+                StatusCode::BAD_REQUEST,
+                RFA_REQUEST_MALFORMED,
+                Some("invalid client_id".to_string()),
+                None,
+                trace_id.clone(),
+            );
+        }
+    };
     // Step 1: Validate payload basics.
     if payload.url.trim().is_empty() {
         return problem(
@@ -59,8 +76,10 @@ async fn register_webhook(
     let result = RegisterWebhookUseCase::execute(
         &state.ctx,
         RegisterWebhookCommand {
+            client_id,
             url: payload.url.clone(),
             events: payload.events.clone(),
+            is_default: payload.is_default.unwrap_or(false),
         },
     )
     .await;
@@ -95,9 +114,19 @@ async fn register_webhook(
 async fn unregister_webhook(
     State(state): State<AppState>,
     Extension(trace_id): Extension<TraceId>,
-    Path(webhook_id): Path<String>,
+    Path((client_id, webhook_id)): Path<(String, String)>,
 ) -> Response {
     let trace_id = Some(trace_id.0.clone());
+    // Step 1: Parse client id.
+    if uuid::Uuid::parse_str(&client_id).is_err() {
+        return problem(
+            StatusCode::BAD_REQUEST,
+            RFA_REQUEST_MALFORMED,
+            Some("invalid client_id".to_string()),
+            None,
+            trace_id.clone(),
+        );
+    }
     // Step 1: Parse webhook id.
     let webhook_id = match uuid::Uuid::parse_str(&webhook_id) {
         Ok(id) => id,

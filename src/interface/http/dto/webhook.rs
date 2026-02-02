@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub struct RegisterWebhookRequest {
     pub url: String,
     pub events: Vec<String>,
+    pub is_default: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]

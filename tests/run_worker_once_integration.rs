@@ -44,6 +44,14 @@ async fn given_queued_job_when_run_worker_once_should_finish_and_report() {
             skew_seconds: 1,
             tolerance_ms: 100,
         },
+        webhook_delivery: forge_run::config::WebhookDelivery {
+            poll_interval_ms: 1000,
+            batch_size: 100,
+            request_timeout_ms: 2000,
+            max_attempts: 5,
+            backoff_initial_ms: 500,
+            backoff_max_ms: 30000,
+        },
     };
     let ctx = AppContext::new(repos.clone(), Arc::new(lifecycle), settings.clone());
 
@@ -56,6 +64,7 @@ async fn given_queued_job_when_run_worker_once_should_finish_and_report() {
             client_id,
             execution_at: None,
             callback_url: None,
+            callback_events: None,
             work_kind: Some("SUCCESS_FAST".to_string()),
             idempotency_key: None,
         },
@@ -112,6 +121,14 @@ async fn given_retryable_job_when_run_worker_once_should_requeue_with_backoff() 
             skew_seconds: 1,
             tolerance_ms: 100,
         },
+        webhook_delivery: forge_run::config::WebhookDelivery {
+            poll_interval_ms: 1000,
+            batch_size: 100,
+            request_timeout_ms: 2000,
+            max_attempts: 5,
+            backoff_initial_ms: 500,
+            backoff_max_ms: 30000,
+        },
     };
     let ctx = AppContext::new(repos.clone(), Arc::new(lifecycle), settings.clone());
 
@@ -124,6 +141,7 @@ async fn given_retryable_job_when_run_worker_once_should_requeue_with_backoff() 
             client_id,
             execution_at: None,
             callback_url: None,
+            callback_events: None,
             work_kind: Some("RETRY_ON_FAIL".to_string()),
             idempotency_key: None,
         },

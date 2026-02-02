@@ -19,7 +19,7 @@ impl EventRow {
         Self {
             id: event.id.0,
             job_id: event.job_id.0,
-            event_name: event_name_to_str(event.event_name).to_string(),
+            event_name: event.event_name.as_str().to_string(),
             prev_state: event.prev_state.as_str().to_string(),
             next_state: event.next_state.as_str().to_string(),
             occurred_at: event.timestamp.as_inner(),
@@ -35,18 +35,6 @@ impl EventRow {
             next_state: job_state_from_str(&self.next_state),
             timestamp: Timestamp::from(self.occurred_at),
         }
-    }
-}
-
-fn event_name_to_str(name: EventName) -> &'static str {
-    match name {
-        EventName::JobCreated => "job_created",
-        EventName::JobQueued => "job_queued",
-        EventName::JobAssigned => "job_assigned",
-        EventName::JobStarted => "job_started",
-        EventName::JobSucceeded => "job_succeeded",
-        EventName::JobFailed => "job_failed",
-        EventName::JobCanceled => "job_canceled",
     }
 }
 

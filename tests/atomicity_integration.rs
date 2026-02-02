@@ -30,6 +30,7 @@ fn sample_job(client_id: ClientId) -> Job {
         JobId::new(),
         client_id,
         None,
+        None,
         Some("SUCCESS_FAST".to_string()),
     )
     .unwrap()

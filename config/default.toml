@@ -20,3 +20,11 @@ poll_interval_ms = 1000
 max_batch = 100
 skew_seconds = 1
 tolerance_ms = 100
+
+[webhook_delivery]
+poll_interval_ms = 1000
+batch_size = 100
+request_timeout_ms = 2000
+max_attempts = 5
+backoff_initial_ms = 500
+backoff_max_ms = 30000

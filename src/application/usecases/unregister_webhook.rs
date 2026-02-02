@@ -61,6 +61,14 @@ mod tests {
             Ok(None)
         }
 
+        async fn get_default_for_client(
+            &self,
+            _client_id: uuid::Uuid,
+        ) -> Result<Option<crate::infrastructure::db::dto::WebhookRow>, WebhookRepositoryError>
+        {
+            Ok(None)
+        }
+
         async fn insert(
             &self,
             _row: &crate::infrastructure::db::dto::WebhookRow,

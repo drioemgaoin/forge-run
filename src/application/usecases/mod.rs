@@ -3,6 +3,7 @@ pub mod claim_next_job;
 pub mod cleanup_retention;
 pub mod create_api_key;
 pub mod create_client;
+pub mod deliver_webhooks;
 pub mod get_job;
 pub mod get_report;
 pub mod heartbeat_job;
