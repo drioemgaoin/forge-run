@@ -43,6 +43,14 @@ async fn given_missed_schedule_when_run_once_should_queue_job() {
             skew_seconds: 1,
             tolerance_ms: 100,
         },
+        webhook_delivery: forge_run::config::WebhookDelivery {
+            poll_interval_ms: 1000,
+            batch_size: 100,
+            request_timeout_ms: 2000,
+            max_attempts: 5,
+            backoff_initial_ms: 500,
+            backoff_max_ms: 30000,
+        },
     };
     let ctx = AppContext::new(repos.clone(), Arc::new(lifecycle), settings.clone());
 
@@ -52,6 +60,7 @@ async fn given_missed_schedule_when_run_once_should_queue_job() {
         JobId::new(),
         ClientId::new(),
         execution_at,
+        None,
         None,
         Some("SUCCESS_FAST".to_string()),
     )

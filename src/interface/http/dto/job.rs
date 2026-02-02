@@ -5,6 +5,7 @@ pub struct SubmitJobRequest {
     pub r#type: String,
     pub execution_at: Option<String>,
     pub callback: Option<String>,
+    pub callback_events: Option<Vec<String>>,
     pub idempotency_key: Option<String>,
     pub work_kind: Option<String>,
 }
@@ -27,6 +28,7 @@ pub struct JobResponse {
     pub updated_at: String,
     pub attempt: i64,
     pub callback: Option<String>,
+    pub callback_events: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]

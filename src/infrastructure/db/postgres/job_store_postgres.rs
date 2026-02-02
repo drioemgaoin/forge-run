@@ -36,6 +36,7 @@ impl JobStorePostgres {
                 lease_expires_at,
                 heartbeat_at,
                 callback_url,
+                callback_events,
                 work_kind
             FROM jobs
             WHERE id = $1",
@@ -68,9 +69,10 @@ impl JobStorePostgres {
                 lease_expires_at,
                 heartbeat_at,
                 callback_url,
+                callback_events,
                 work_kind
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
             ON CONFLICT (id) DO UPDATE SET
                 id = EXCLUDED.id
             RETURNING
@@ -88,6 +90,7 @@ impl JobStorePostgres {
                 lease_expires_at,
                 heartbeat_at,
                 callback_url,
+                callback_events,
                 work_kind",
         )
         .bind(row.id)
@@ -104,6 +107,7 @@ impl JobStorePostgres {
         .bind(row.lease_expires_at)
         .bind(row.heartbeat_at)
         .bind(&row.callback_url)
+        .bind(&row.callback_events)
         .bind(&row.work_kind)
         .fetch_one(&mut *conn)
         .await
@@ -143,6 +147,7 @@ impl JobStorePostgres {
                 lease_expires_at,
                 heartbeat_at,
                 callback_url,
+                callback_events,
                 work_kind",
         )
         .bind(row.id)
@@ -203,6 +208,7 @@ impl JobStorePostgres {
                 lease_expires_at,
                 heartbeat_at,
                 callback_url,
+                callback_events,
                 work_kind
             FROM jobs
             WHERE job_type = 'deferred'
@@ -259,6 +265,7 @@ impl JobStorePostgres {
                 lease_expires_at,
                 heartbeat_at,
                 callback_url,
+                callback_events,
                 work_kind",
         )
         .bind(worker_id)
@@ -308,6 +315,7 @@ impl JobStorePostgres {
                 lease_expires_at,
                 heartbeat_at,
                 callback_url,
+                callback_events,
                 work_kind",
         )
         .bind(worker_id)
@@ -341,6 +349,7 @@ impl JobStorePostgres {
                 lease_expires_at,
                 heartbeat_at,
                 callback_url,
+                callback_events,
                 work_kind
             FROM jobs
             WHERE state IN ('assigned', 'running')
@@ -389,6 +398,7 @@ impl JobStorePostgres {
                 lease_expires_at,
                 heartbeat_at,
                 callback_url,
+                callback_events,
                 work_kind",
         )
         .bind(job_id)
@@ -689,6 +699,7 @@ mod tests {
             lease_expires_at: None,
             heartbeat_at: None,
             callback_url: None,
+            callback_events: None,
             work_kind: "SUCCESS_FAST".to_string(),
         }
     }

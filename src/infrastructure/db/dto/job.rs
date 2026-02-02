@@ -19,6 +19,7 @@ pub struct JobRow {
     pub lease_expires_at: Option<OffsetDateTime>,
     pub heartbeat_at: Option<OffsetDateTime>,
     pub callback_url: Option<String>,
+    pub callback_events: Option<Vec<String>>,
     pub work_kind: String,
 }
 
@@ -39,6 +40,7 @@ impl JobRow {
             lease_expires_at: job.lease_expires_at.map(|t| t.as_inner()),
             heartbeat_at: job.heartbeat_at.map(|t| t.as_inner()),
             callback_url: job.callback_url.clone(),
+            callback_events: job.callback_events.clone(),
             work_kind: job.working_kind.clone().unwrap_or_default(),
         }
     }
@@ -75,6 +77,7 @@ impl JobRow {
             lease_expires_at: self.lease_expires_at.map(Timestamp::from),
             heartbeat_at: self.heartbeat_at.map(Timestamp::from),
             callback_url: self.callback_url,
+            callback_events: self.callback_events,
             working_kind: Some(self.work_kind),
         }
     }
@@ -93,6 +96,7 @@ mod tests {
             JobId::new(),
             ClientId::new(),
             Some("https://example.com/callback".to_string()),
+            Some(vec!["job_created".to_string()]),
             Some("SUCCESS_FAST".to_string()),
         )
         .unwrap()
@@ -126,6 +130,7 @@ mod tests {
         );
         assert_eq!(row.heartbeat_at, job.heartbeat_at.map(|t| t.as_inner()));
         assert_eq!(row.callback_url, job.callback_url);
+        assert_eq!(row.callback_events, job.callback_events);
         assert_eq!(row.work_kind, "SUCCESS_FAST");
     }
 
@@ -147,6 +152,7 @@ mod tests {
             lease_expires_at: Some(now),
             heartbeat_at: Some(now),
             callback_url: Some("https://example.com/callback".to_string()),
+            callback_events: Some(vec!["job_created".to_string()]),
             work_kind: "PAYLOAD_SMALL".to_string(),
         };
 
@@ -169,6 +175,7 @@ mod tests {
         );
         assert_eq!(job.heartbeat_at, row.heartbeat_at.map(Timestamp::from));
         assert_eq!(job.callback_url, row.callback_url);
+        assert_eq!(job.callback_events, row.callback_events);
         assert_eq!(job.working_kind, Some("PAYLOAD_SMALL".to_string()));
     }
 
@@ -190,6 +197,7 @@ mod tests {
             lease_expires_at: None,
             heartbeat_at: None,
             callback_url: None,
+            callback_events: None,
             work_kind: "SUCCESS_FAST".to_string(),
         };
 

@@ -22,6 +22,7 @@ async fn create_job_id() -> Option<JobId> {
         JobId::new(),
         ClientId::new(),
         None,
+        None,
         Some("SUCCESS_FAST".to_string()),
     )
     .unwrap();

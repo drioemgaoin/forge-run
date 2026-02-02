@@ -8,7 +8,7 @@ use crate::domain::services::job_lifecycle::JobLifecycleError;
 use crate::domain::value_objects::ids::{ClientId, JobId};
 use crate::domain::value_objects::timestamps::Timestamp;
 use crate::infrastructure::db::database::DatabaseError;
-use crate::infrastructure::db::dto::IdempotencyKeyRow;
+use crate::infrastructure::db::dto::{IdempotencyKeyRow, WebhookDeliveryRow};
 use time::Duration;
 
 #[allow(dead_code)]
@@ -20,6 +20,7 @@ pub struct SubmitJobCommand {
     pub client_id: ClientId,
     pub execution_at: Option<Timestamp>,
     pub callback_url: Option<String>,
+    pub callback_events: Option<Vec<String>>,
     pub work_kind: Option<String>,
     pub idempotency_key: Option<String>,
 }
@@ -39,9 +40,12 @@ impl SubmitJobUseCase {
         let job_repo = ctx.repos.job.clone();
         let event_repo = ctx.repos.event.clone();
         let id_repo = ctx.repos.idempotency.clone();
+        let webhook_repo = ctx.repos.webhook.clone();
+        let delivery_repo = ctx.repos.webhook_delivery.clone();
         let client_id = cmd.client_id;
         let execution_at = cmd.execution_at;
         let callback_url = cmd.callback_url.clone();
+        let callback_events = cmd.callback_events.clone();
         let work_kind = cmd.work_kind.clone();
         let idempotency_key = cmd.idempotency_key.clone();
         let now = Timestamp::now_utc();
@@ -120,7 +124,10 @@ impl SubmitJobUseCase {
                 let job_repo = job_repo.clone();
                 let event_repo = event_repo.clone();
                 let id_repo = id_repo.clone();
+                let webhook_repo = webhook_repo.clone();
+                let delivery_repo = delivery_repo.clone();
                 let callback_url = callback_url.clone();
+                let callback_events = callback_events.clone();
                 let work_kind = work_kind.clone();
                 let idempotency_key = idempotency_key.clone();
 
@@ -166,14 +173,21 @@ impl SubmitJobUseCase {
                                 client_id,
                                 execution_at,
                                 callback_url,
+                                callback_events,
                                 work_kind,
                             )
                             .map_err(JobLifecycleError::Validation)
                             .map_err(|e| DatabaseError::Query(format!("{e:?}")))?
                         } else {
-                            Job::new_instant(job_id, client_id, callback_url, work_kind)
-                                .map_err(JobLifecycleError::Validation)
-                                .map_err(|e| DatabaseError::Query(format!("{e:?}")))?
+                            Job::new_instant(
+                                job_id,
+                                client_id,
+                                callback_url,
+                                callback_events,
+                                work_kind,
+                            )
+                            .map_err(JobLifecycleError::Validation)
+                            .map_err(|e| DatabaseError::Query(format!("{e:?}")))?
                         };
                         let created_event = Event::new_created(
                             crate::domain::value_objects::ids::EventId::new(),
@@ -197,6 +211,14 @@ impl SubmitJobUseCase {
                             .insert_tx(tx, &created_event)
                             .await
                             .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+                        let deliveries =
+                            build_webhook_deliveries(&job, &created_event, &webhook_repo).await?;
+                        for delivery in deliveries {
+                            delivery_repo
+                                .insert_tx(tx, &delivery)
+                                .await
+                                .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+                        }
                         id_repo
                             .insert_tx(tx, &id_row)
                             .await
@@ -223,6 +245,15 @@ impl SubmitJobUseCase {
                                 .insert_tx(tx, &queued_event)
                                 .await
                                 .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+                            let deliveries =
+                                build_webhook_deliveries(&queued_job, &queued_event, &webhook_repo)
+                                    .await?;
+                            for delivery in deliveries {
+                                delivery_repo
+                                    .insert_tx(tx, &delivery)
+                                    .await
+                                    .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+                            }
 
                             Ok((queued_job, created_event))
                         } else {
@@ -237,14 +268,21 @@ impl SubmitJobUseCase {
                                 client_id,
                                 execution_at,
                                 callback_url,
+                                callback_events,
                                 work_kind,
                             )
                             .map_err(JobLifecycleError::Validation)
                             .map_err(|e| DatabaseError::Query(format!("{e:?}")))?
                         } else {
-                            Job::new_instant(job_id, client_id, callback_url, work_kind)
-                                .map_err(JobLifecycleError::Validation)
-                                .map_err(|e| DatabaseError::Query(format!("{e:?}")))?
+                            Job::new_instant(
+                                job_id,
+                                client_id,
+                                callback_url,
+                                callback_events,
+                                work_kind,
+                            )
+                            .map_err(JobLifecycleError::Validation)
+                            .map_err(|e| DatabaseError::Query(format!("{e:?}")))?
                         };
                         let created_event = Event::new_created(
                             crate::domain::value_objects::ids::EventId::new(),
@@ -261,6 +299,14 @@ impl SubmitJobUseCase {
                             .insert_tx(tx, &created_event)
                             .await
                             .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+                        let deliveries =
+                            build_webhook_deliveries(&job, &created_event, &webhook_repo).await?;
+                        for delivery in deliveries {
+                            delivery_repo
+                                .insert_tx(tx, &delivery)
+                                .await
+                                .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+                        }
 
                         // Step 11: Enqueue instant jobs immediately.
                         if job.job_type == JobType::Instant {
@@ -283,6 +329,15 @@ impl SubmitJobUseCase {
                                 .insert_tx(tx, &queued_event)
                                 .await
                                 .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+                            let deliveries =
+                                build_webhook_deliveries(&queued_job, &queued_event, &webhook_repo)
+                                    .await?;
+                            for delivery in deliveries {
+                                delivery_repo
+                                    .insert_tx(tx, &delivery)
+                                    .await
+                                    .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+                            }
 
                             Ok((queued_job, created_event))
                         } else {
@@ -297,6 +352,75 @@ impl SubmitJobUseCase {
         // Step 7: Return the created job and event.
         Ok(SubmitJobResult { job, created_event })
     }
+}
+
+async fn build_webhook_deliveries(
+    job: &Job,
+    event: &Event,
+    webhook_repo: &crate::infrastructure::db::repositories::webhook_repository::WebhookRepository,
+) -> Result<Vec<WebhookDeliveryRow>, DatabaseError> {
+    // Step 1: If job-specific callback is present, use it.
+    if let Some(callback_url) = job.callback_url.as_ref() {
+        if let Some(events) = job.callback_events.as_ref()
+            && !events.iter().any(|evt| evt == event.event_name.as_str())
+        {
+            return Ok(vec![]);
+        }
+        let now = event.timestamp.as_inner();
+        return Ok(vec![WebhookDeliveryRow {
+            id: uuid::Uuid::new_v4(),
+            webhook_id: None,
+            target_url: callback_url.clone(),
+            event_id: event.id.0,
+            job_id: event.job_id.0,
+            event_name: event.event_name.as_str().to_string(),
+            attempt: 0,
+            status: "pending".to_string(),
+            last_error: None,
+            response_status: None,
+            next_attempt_at: Some(now),
+            created_at: now,
+            updated_at: now,
+            delivered_at: None,
+        }]);
+    }
+
+    // Step 2: Load the default webhook for the client.
+    let webhook = webhook_repo
+        .get_default_for_client(job.client_id.0)
+        .await
+        .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+    let Some(webhook) = webhook else {
+        return Ok(vec![]);
+    };
+
+    // Step 3: Skip if not subscribed to this event.
+    if !webhook
+        .events
+        .iter()
+        .any(|evt| evt == event.event_name.as_str())
+    {
+        return Ok(vec![]);
+    }
+
+    // Step 4: Create the delivery row.
+    let now = event.timestamp.as_inner();
+    Ok(vec![WebhookDeliveryRow {
+        id: uuid::Uuid::new_v4(),
+        webhook_id: Some(webhook.id),
+        target_url: webhook.url,
+        event_id: event.id.0,
+        job_id: event.job_id.0,
+        event_name: event.event_name.as_str().to_string(),
+        attempt: 0,
+        status: "pending".to_string(),
+        last_error: None,
+        response_status: None,
+        next_attempt_at: Some(now),
+        created_at: now,
+        updated_at: now,
+        delivered_at: None,
+    }])
 }
 
 #[cfg(test)]
@@ -331,6 +455,7 @@ mod tests {
             client_id,
             execution_at: None,
             callback_url: None,
+            callback_events: None,
             work_kind: Some("SUCCESS_FAST".to_string()),
             idempotency_key: Some("same-key".to_string()),
         };
@@ -374,6 +499,7 @@ mod tests {
             client_id,
             execution_at: Some(execution_at),
             callback_url: None,
+            callback_events: None,
             work_kind: Some("SUCCESS_FAST".to_string()),
             idempotency_key: None,
         };
@@ -409,6 +535,7 @@ mod tests {
             client_id,
             execution_at: Some(execution_at),
             callback_url: None,
+            callback_events: None,
             work_kind: Some("SUCCESS_FAST".to_string()),
             idempotency_key: None,
         };
@@ -447,6 +574,7 @@ mod tests {
             client_id,
             execution_at,
             None,
+            None,
             Some("SUCCESS_FAST".to_string()),
         )
         .unwrap();
@@ -456,6 +584,7 @@ mod tests {
             client_id,
             execution_at: Some(execution_at),
             callback_url: None,
+            callback_events: None,
             work_kind: Some("SUCCESS_FAST".to_string()),
             idempotency_key: None,
         };

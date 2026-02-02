@@ -43,12 +43,21 @@ async fn given_expired_lease_when_execute_should_requeue_job() {
             skew_seconds: 1,
             tolerance_ms: 100,
         },
+        webhook_delivery: forge_run::config::WebhookDelivery {
+            poll_interval_ms: 1000,
+            batch_size: 100,
+            request_timeout_ms: 2000,
+            max_attempts: 5,
+            backoff_initial_ms: 500,
+            backoff_max_ms: 30000,
+        },
     };
     let ctx = AppContext::new(repos.clone(), Arc::new(lifecycle), settings.clone());
 
     let mut job = Job::new_instant(
         JobId::new(),
         forge_run::domain::value_objects::ids::ClientId::new(),
+        None,
         None,
         Some("SUCCESS_FAST".to_string()),
     )
@@ -112,12 +121,21 @@ async fn given_active_lease_when_execute_should_not_requeue_job() {
             skew_seconds: 1,
             tolerance_ms: 100,
         },
+        webhook_delivery: forge_run::config::WebhookDelivery {
+            poll_interval_ms: 1000,
+            batch_size: 100,
+            request_timeout_ms: 2000,
+            max_attempts: 5,
+            backoff_initial_ms: 500,
+            backoff_max_ms: 30000,
+        },
     };
     let ctx = AppContext::new(repos.clone(), Arc::new(lifecycle), settings.clone());
 
     let mut job = Job::new_instant(
         JobId::new(),
         forge_run::domain::value_objects::ids::ClientId::new(),
+        None,
         None,
         Some("SUCCESS_FAST".to_string()),
     )

@@ -5,6 +5,7 @@ use crate::domain::value_objects::ids::{ClientId, EventId, JobId};
 use crate::domain::value_objects::timestamps::Timestamp;
 use crate::domain::workflows::state_machine::{JobStateMachine, TransitionError};
 use crate::infrastructure::db::database::DatabaseError;
+use crate::infrastructure::db::dto::WebhookDeliveryRow;
 use crate::infrastructure::db::repositories::Repositories;
 use async_trait::async_trait;
 
@@ -30,18 +31,21 @@ pub trait JobLifecycleService: Send + Sync {
     /// Create an instant job and its initial `JobCreated` event.
     ///
     /// Use this in submit flows when the job should run immediately.
+    /// If `callback_events` is provided, only those event names trigger the job callback.
     /// Returns both the created job and the created event.
     async fn create_instant(
         &self,
         job_id: JobId,
         client_id: ClientId,
         callback_url: Option<String>,
+        callback_events: Option<Vec<String>>,
         work_kind: Option<String>,
     ) -> Result<(Job, Event), JobLifecycleError>;
 
     /// Create a deferred job and its initial `JobCreated` event.
     ///
     /// Use this in submit flows when the job should run at a future time.
+    /// If `callback_events` is provided, only those event names trigger the job callback.
     /// Returns both the created job and the created event.
     async fn create_deferred(
         &self,
@@ -49,6 +53,7 @@ pub trait JobLifecycleService: Send + Sync {
         client_id: ClientId,
         execution_at: Timestamp,
         callback_url: Option<String>,
+        callback_events: Option<Vec<String>>,
         work_kind: Option<String>,
     ) -> Result<(Job, Event), JobLifecycleError>;
 
@@ -86,6 +91,78 @@ impl JobLifecycle {
         // Step 1: Store repositories for later transactional use.
         Self { repos }
     }
+
+    async fn build_webhook_deliveries(
+        &self,
+        job: &Job,
+        event: &Event,
+    ) -> Result<Vec<WebhookDeliveryRow>, JobLifecycleError> {
+        // Step 1: If a job-specific callback is set, use it exclusively.
+        if let Some(callback_url) = job.callback_url.as_ref() {
+            if let Some(events) = job.callback_events.as_ref()
+                && !events.iter().any(|evt| evt == event.event_name.as_str())
+            {
+                return Ok(vec![]);
+            }
+            let now = event.timestamp.as_inner();
+            return Ok(vec![WebhookDeliveryRow {
+                id: uuid::Uuid::new_v4(),
+                webhook_id: None,
+                target_url: callback_url.clone(),
+                event_id: event.id.0,
+                job_id: event.job_id.0,
+                event_name: event.event_name.as_str().to_string(),
+                attempt: 0,
+                status: "pending".to_string(),
+                last_error: None,
+                response_status: None,
+                next_attempt_at: Some(now),
+                created_at: now,
+                updated_at: now,
+                delivered_at: None,
+            }]);
+        }
+
+        // Step 2: Otherwise, load the default webhook for the client.
+        let webhook = self
+            .repos
+            .webhook
+            .get_default_for_client(job.client_id.0)
+            .await
+            .map_err(|e| JobLifecycleError::Storage(format!("{e:?}")))?;
+
+        let Some(webhook) = webhook else {
+            return Ok(vec![]);
+        };
+
+        // Step 3: Deliver only if the event is subscribed.
+        if !webhook
+            .events
+            .iter()
+            .any(|evt| evt == event.event_name.as_str())
+        {
+            return Ok(vec![]);
+        }
+
+        // Step 4: Create the delivery row for the default webhook.
+        let now = event.timestamp.as_inner();
+        Ok(vec![WebhookDeliveryRow {
+            id: uuid::Uuid::new_v4(),
+            webhook_id: Some(webhook.id),
+            target_url: webhook.url,
+            event_id: event.id.0,
+            job_id: event.job_id.0,
+            event_name: event.event_name.as_str().to_string(),
+            attempt: 0,
+            status: "pending".to_string(),
+            last_error: None,
+            response_status: None,
+            next_attempt_at: Some(now),
+            created_at: now,
+            updated_at: now,
+            delivered_at: None,
+        }])
+    }
 }
 
 #[async_trait]
@@ -96,22 +173,26 @@ impl JobLifecycleService for JobLifecycle {
         job_id: JobId,
         client_id: ClientId,
         callback_url: Option<String>,
+        callback_events: Option<Vec<String>>,
         work_kind: Option<String>,
     ) -> Result<(Job, Event), JobLifecycleError> {
         // Step 1: Build the domain job and the created event.
-        let job = Job::new_instant(job_id, client_id, callback_url, work_kind)
+        let job = Job::new_instant(job_id, client_id, callback_url, callback_events, work_kind)
             .map_err(JobLifecycleError::Validation)?;
         let created_event = Event::new_created(EventId::new(), job.id, Timestamp::now_utc());
+        let deliveries = self.build_webhook_deliveries(&job, &created_event).await?;
 
         // Step 2: Prepare repository handles.
         let job_repo = self.repos.job.clone();
         let event_repo = self.repos.event.clone();
+        let delivery_repo = self.repos.webhook_delivery.clone();
 
         // Step 3: Persist both rows in a single transaction.
         self.repos
             .with_tx(|tx| {
                 let job = job.clone();
                 let created_event = created_event.clone();
+                let deliveries = deliveries.clone();
                 Box::pin(async move {
                     job_repo
                         .insert_tx(tx, &job)
@@ -121,6 +202,12 @@ impl JobLifecycleService for JobLifecycle {
                         .insert_tx(tx, &created_event)
                         .await
                         .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+                    for delivery in deliveries {
+                        delivery_repo
+                            .insert_tx(tx, &delivery)
+                            .await
+                            .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+                    }
                     Ok(())
                 })
             })
@@ -138,22 +225,33 @@ impl JobLifecycleService for JobLifecycle {
         client_id: ClientId,
         execution_at: Timestamp,
         callback_url: Option<String>,
+        callback_events: Option<Vec<String>>,
         work_kind: Option<String>,
     ) -> Result<(Job, Event), JobLifecycleError> {
         // Step 1: Build the domain job and the created event.
-        let job = Job::new_deferred(job_id, client_id, execution_at, callback_url, work_kind)
-            .map_err(JobLifecycleError::Validation)?;
+        let job = Job::new_deferred(
+            job_id,
+            client_id,
+            execution_at,
+            callback_url,
+            callback_events,
+            work_kind,
+        )
+        .map_err(JobLifecycleError::Validation)?;
         let created_event = Event::new_created(EventId::new(), job.id, Timestamp::now_utc());
+        let deliveries = self.build_webhook_deliveries(&job, &created_event).await?;
 
         // Step 2: Prepare repository handles.
         let job_repo = self.repos.job.clone();
         let event_repo = self.repos.event.clone();
+        let delivery_repo = self.repos.webhook_delivery.clone();
 
         // Step 3: Persist both rows in a single transaction.
         self.repos
             .with_tx(|tx| {
                 let job = job.clone();
                 let created_event = created_event.clone();
+                let deliveries = deliveries.clone();
                 Box::pin(async move {
                     job_repo
                         .insert_tx(tx, &job)
@@ -163,6 +261,12 @@ impl JobLifecycleService for JobLifecycle {
                         .insert_tx(tx, &created_event)
                         .await
                         .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+                    for delivery in deliveries {
+                        delivery_repo
+                            .insert_tx(tx, &delivery)
+                            .await
+                            .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+                    }
                     Ok(())
                 })
             })
@@ -205,16 +309,19 @@ impl JobLifecycleService for JobLifecycle {
         // Step 3: Create the transition event.
         let event = Event::from_transition(EventId::new(), job.id, prev_state, next_state)
             .map_err(JobLifecycleError::Transition)?;
+        let deliveries = self.build_webhook_deliveries(job, &event).await?;
 
         // Step 4: Prepare repository handles.
         let job_repo = self.repos.job.clone();
         let event_repo = self.repos.event.clone();
+        let delivery_repo = self.repos.webhook_delivery.clone();
 
         // Step 5: Persist both rows in a single transaction.
         self.repos
             .with_tx(|tx| {
                 let job = job.clone();
                 let event = event.clone();
+                let deliveries = deliveries.clone();
                 Box::pin(async move {
                     job_repo
                         .update_tx(tx, &job)
@@ -224,6 +331,12 @@ impl JobLifecycleService for JobLifecycle {
                         .insert_tx(tx, &event)
                         .await
                         .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+                    for delivery in deliveries {
+                        delivery_repo
+                            .insert_tx(tx, &delivery)
+                            .await
+                            .map_err(|e| DatabaseError::Query(format!("{e:?}")))?;
+                    }
                     Ok(())
                 })
             })
@@ -300,6 +413,7 @@ mod tests {
                 JobId::new(),
                 ClientId::new(),
                 None,
+                None,
                 Some("SUCCESS_FAST".to_string()),
             )
             .await
@@ -319,7 +433,7 @@ mod tests {
             return;
         };
         let result = lifecycle
-            .create_instant(JobId::new(), ClientId::new(), None, None)
+            .create_instant(JobId::new(), ClientId::new(), None, None, None)
             .await;
 
         assert!(matches!(
@@ -344,6 +458,7 @@ mod tests {
                 ClientId::new(),
                 execution_at,
                 None,
+                None,
                 Some("SUCCESS_FAST".to_string()),
             )
             .await;
@@ -365,6 +480,7 @@ mod tests {
             .create_instant(
                 JobId::new(),
                 ClientId::new(),
+                None,
                 None,
                 Some("SUCCESS_FAST".to_string()),
             )
@@ -394,6 +510,7 @@ mod tests {
                 JobId::new(),
                 ClientId::new(),
                 None,
+                None,
                 Some("SUCCESS_FAST".to_string()),
             )
             .await
@@ -421,6 +538,7 @@ mod tests {
             .create_instant(
                 JobId::new(),
                 ClientId::new(),
+                None,
                 None,
                 Some("SUCCESS_FAST".to_string()),
             )
@@ -451,6 +569,7 @@ mod tests {
             .create_instant(
                 JobId::new(),
                 ClientId::new(),
+                None,
                 None,
                 Some("SUCCESS_FAST".to_string()),
             )

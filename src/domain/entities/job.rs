@@ -85,16 +85,19 @@ pub struct Job {
     pub lease_expires_at: Option<Timestamp>,
     pub heartbeat_at: Option<Timestamp>,
     pub callback_url: Option<String>,
+    pub callback_events: Option<Vec<String>>,
     pub working_kind: Option<String>,
 }
 
 impl Job {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         id: JobId,
         client_id: ClientId,
         job_type: JobType,
         executed_at: Option<Timestamp>,
         callback_url: Option<String>,
+        callback_events: Option<Vec<String>>,
         working_kind: Option<String>,
         now: Timestamp,
     ) -> Result<Self, JobValidationError> {
@@ -113,6 +116,11 @@ impl Job {
         {
             return Err(JobValidationError::InvalidCallbackUrl);
         }
+        let callback_events = if callback_url.is_some() {
+            callback_events
+        } else {
+            None
+        };
 
         Ok(Self {
             id,
@@ -129,6 +137,7 @@ impl Job {
             lease_expires_at: None,
             heartbeat_at: None,
             callback_url,
+            callback_events,
             working_kind,
         })
     }
@@ -137,6 +146,7 @@ impl Job {
         id: JobId,
         client_id: ClientId,
         callback_url: Option<String>,
+        callback_events: Option<Vec<String>>,
         working_kind: Option<String>,
     ) -> Result<Self, JobValidationError> {
         Self::new(
@@ -145,6 +155,7 @@ impl Job {
             JobType::Instant,
             None,
             callback_url,
+            callback_events,
             working_kind,
             Timestamp::now_utc(),
         )
@@ -155,6 +166,7 @@ impl Job {
         client_id: ClientId,
         execution_at: Timestamp,
         callback_url: Option<String>,
+        callback_events: Option<Vec<String>>,
         working_kind: Option<String>,
     ) -> Result<Self, JobValidationError> {
         let now = Timestamp::now_utc();
@@ -168,6 +180,7 @@ impl Job {
             JobType::Deferred,
             Some(execution_at),
             callback_url,
+            callback_events,
             working_kind,
             now,
         )
@@ -260,6 +273,7 @@ mod tests {
             JobId::new(),
             ClientId::new(),
             None,
+            None,
             Some("SUCCESS_FAST".to_string()),
         )
         .unwrap();
@@ -278,6 +292,7 @@ mod tests {
             ClientId::new(),
             execution_at,
             None,
+            None,
             Some("SUCCESS_FAST".to_string()),
         )
         .unwrap();
@@ -290,6 +305,7 @@ mod tests {
         let job = Job::new_instant(
             JobId::new(),
             ClientId::new(),
+            None,
             None,
             Some("SUCCESS_FAST".to_string()),
         )
@@ -307,6 +323,7 @@ mod tests {
             ClientId::new(),
             execution_at,
             None,
+            None,
             Some("SUCCESS_FAST".to_string()),
         )
         .unwrap();
@@ -320,6 +337,7 @@ mod tests {
             JobId::new(),
             ClientId::new(),
             None,
+            None,
             Some("SUCCESS_FAST".to_string()),
         )
         .unwrap();
@@ -332,6 +350,7 @@ mod tests {
         let mut job = Job::new_instant(
             JobId::new(),
             ClientId::new(),
+            None,
             None,
             Some("SUCCESS_FAST".to_string()),
         )
@@ -349,6 +368,7 @@ mod tests {
             JobId::new(),
             ClientId::new(),
             None,
+            None,
             Some("SUCCESS_FAST".to_string()),
         )
         .unwrap();
@@ -363,6 +383,7 @@ mod tests {
         let mut job = Job::new_instant(
             JobId::new(),
             ClientId::new(),
+            None,
             None,
             Some("SUCCESS_FAST".to_string()),
         )
@@ -382,6 +403,7 @@ mod tests {
             JobId::new(),
             ClientId::new(),
             None,
+            None,
             Some("SUCCESS_FAST".to_string()),
         )
         .unwrap();
@@ -396,6 +418,7 @@ mod tests {
         let mut job = Job::new_instant(
             JobId::new(),
             ClientId::new(),
+            None,
             None,
             Some("SUCCESS_FAST".to_string()),
         )
@@ -412,6 +435,7 @@ mod tests {
         let mut job = Job::new_instant(
             JobId::new(),
             ClientId::new(),
+            None,
             None,
             Some("SUCCESS_FAST".to_string()),
         )

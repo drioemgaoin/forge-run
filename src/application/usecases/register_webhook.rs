@@ -15,8 +15,10 @@ pub enum RegisterWebhookError {
 
 #[derive(Debug, Clone)]
 pub struct RegisterWebhookCommand {
+    pub client_id: uuid::Uuid,
     pub url: String,
     pub events: Vec<String>,
+    pub is_default: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -34,8 +36,10 @@ impl RegisterWebhookUseCase {
         // Step 1: Build a webhook row with a new ID.
         let row = WebhookRow {
             id: uuid::Uuid::new_v4(),
+            client_id: cmd.client_id,
             url: cmd.url,
             events: cmd.events,
+            is_default: cmd.is_default,
             created_at: OffsetDateTime::now_utc(),
         };
 
@@ -78,6 +82,13 @@ mod tests {
             Ok(None)
         }
 
+        async fn get_default_for_client(
+            &self,
+            _client_id: uuid::Uuid,
+        ) -> Result<Option<WebhookRow>, WebhookRepositoryError> {
+            Ok(None)
+        }
+
         async fn insert(&self, row: &WebhookRow) -> Result<WebhookRow, WebhookRepositoryError> {
             *self.inserted.lock().unwrap() = Some(row.clone());
             Ok(row.clone())
@@ -103,8 +114,10 @@ mod tests {
         let result = RegisterWebhookUseCase::execute(
             &ctx,
             RegisterWebhookCommand {
+                client_id: uuid::Uuid::new_v4(),
                 url: "https://example.com/webhook".to_string(),
                 events: vec!["job_created".to_string()],
+                is_default: true,
             },
         )
         .await

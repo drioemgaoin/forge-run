@@ -226,6 +226,7 @@ mod tests {
             _job_id: JobId,
             _client_id: ClientId,
             _callback_url: Option<String>,
+            _callback_events: Option<Vec<String>>,
             _work_kind: Option<String>,
         ) -> Result<(Job, Event), JobLifecycleError> {
             Err(JobLifecycleError::Storage("unused".to_string()))
@@ -237,6 +238,7 @@ mod tests {
             _client_id: ClientId,
             _execution_at: Timestamp,
             _callback_url: Option<String>,
+            _callback_events: Option<Vec<String>>,
             _work_kind: Option<String>,
         ) -> Result<(Job, Event), JobLifecycleError> {
             Err(JobLifecycleError::Storage("unused".to_string()))
@@ -276,6 +278,7 @@ mod tests {
             JobId::new(),
             ClientId::new(),
             execution_at,
+            None,
             None,
             Some("SUCCESS_FAST".to_string()),
         )

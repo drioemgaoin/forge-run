@@ -43,6 +43,14 @@ async fn health_endpoint_works() {
             skew_seconds: 1,
             tolerance_ms: 100,
         },
+        webhook_delivery: forge_run::config::WebhookDelivery {
+            poll_interval_ms: 1000,
+            batch_size: 100,
+            request_timeout_ms: 2000,
+            max_attempts: 5,
+            backoff_initial_ms: 500,
+            backoff_max_ms: 30000,
+        },
     };
     let ctx = AppContext::new(repos, std::sync::Arc::new(lifecycle), settings.clone());
     let state = AppState {

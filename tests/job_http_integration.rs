@@ -49,6 +49,14 @@ async fn setup_state() -> Option<(AppState, Arc<PostgresDatabase>)> {
             skew_seconds: 1,
             tolerance_ms: 100,
         },
+        webhook_delivery: forge_run::config::WebhookDelivery {
+            poll_interval_ms: 1000,
+            batch_size: 100,
+            request_timeout_ms: 2000,
+            max_attempts: 5,
+            backoff_initial_ms: 500,
+            backoff_max_ms: 30000,
+        },
     };
     let ctx = AppContext::new(repos, Arc::new(lifecycle), settings.clone());
     let state = AppState { ctx: Arc::new(ctx) };
@@ -234,6 +242,7 @@ async fn given_report_exists_when_get_report_should_return_report() {
     let job = Job::new_instant(
         JobId::new(),
         ClientId(client_id),
+        None,
         None,
         Some("SUCCESS_FAST".to_string()),
     )

@@ -23,6 +23,11 @@ pub trait WebhookStore: Send + Sync {
         &self,
         webhook_id: uuid::Uuid,
     ) -> Result<Option<WebhookRow>, WebhookRepositoryError>;
+    /// Fetch the default webhook for a client, if any.
+    async fn get_default_for_client(
+        &self,
+        client_id: uuid::Uuid,
+    ) -> Result<Option<WebhookRow>, WebhookRepositoryError>;
     /// Create a webhook and return exactly what was stored in the database.
     async fn insert(&self, row: &WebhookRow) -> Result<WebhookRow, WebhookRepositoryError>;
     /// Delete a webhook by its ID. Returns an error if it doesn't exist.
@@ -43,6 +48,13 @@ impl WebhookStore for DisabledWebhookStore {
 
     async fn insert(&self, _row: &WebhookRow) -> Result<WebhookRow, WebhookRepositoryError> {
         Err(WebhookRepositoryError::StorageUnavailable)
+    }
+
+    async fn get_default_for_client(
+        &self,
+        _client_id: uuid::Uuid,
+    ) -> Result<Option<WebhookRow>, WebhookRepositoryError> {
+        Ok(None)
     }
 
     async fn delete(&self, _webhook_id: uuid::Uuid) -> Result<(), WebhookRepositoryError> {

@@ -7,6 +7,7 @@ pub struct Settings {
     pub redis: Redis,
     pub workers: Workers,
     pub scheduler: Scheduler,
+    pub webhook_delivery: WebhookDelivery,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -40,6 +41,16 @@ pub struct Scheduler {
     pub max_batch: u32,
     pub skew_seconds: i64,
     pub tolerance_ms: u64,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct WebhookDelivery {
+    pub poll_interval_ms: u64,
+    pub batch_size: u32,
+    pub request_timeout_ms: u64,
+    pub max_attempts: u32,
+    pub backoff_initial_ms: u64,
+    pub backoff_max_ms: u64,
 }
 
 /// Load settings from `config/default.toml`, `config/<env>.toml`, and env overrides.

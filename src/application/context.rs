@@ -36,7 +36,8 @@ pub mod test_support {
     use crate::domain::value_objects::ids::{ClientId, JobId};
     use crate::domain::value_objects::timestamps::Timestamp;
     use crate::infrastructure::db::dto::{
-        ApiKeyRow, ClientRow, EventRow, IdempotencyKeyRow, JobRow, ReportRow, WebhookRow,
+        ApiKeyRow, ClientRow, EventRow, IdempotencyKeyRow, JobRow, ReportRow, WebhookDeliveryRow,
+        WebhookDeliveryStats, WebhookRow,
     };
     use crate::infrastructure::db::repositories::Repositories;
     use crate::infrastructure::db::repositories::api_key_repository::ApiKeyRepository;
@@ -45,6 +46,7 @@ pub mod test_support {
     use crate::infrastructure::db::repositories::idempotency_key_repository::IdempotencyKeyRepository;
     use crate::infrastructure::db::repositories::job_repository::JobRepository;
     use crate::infrastructure::db::repositories::report_repository::ReportRepository;
+    use crate::infrastructure::db::repositories::webhook_delivery_repository::WebhookDeliveryRepository;
     use crate::infrastructure::db::repositories::webhook_repository::WebhookRepository;
     use crate::infrastructure::db::stores::api_key_store::{ApiKeyRepositoryError, ApiKeyStore};
     use crate::infrastructure::db::stores::client_store::{ClientRepositoryError, ClientStore};
@@ -54,6 +56,9 @@ pub mod test_support {
     };
     use crate::infrastructure::db::stores::job_store::{JobRepositoryError, JobStore};
     use crate::infrastructure::db::stores::report_store::{ReportRepositoryError, ReportStore};
+    use crate::infrastructure::db::stores::webhook_delivery_store::{
+        WebhookDeliveryRepositoryError, WebhookDeliveryStore,
+    };
     use crate::infrastructure::db::stores::webhook_store::{WebhookRepositoryError, WebhookStore};
     use async_trait::async_trait;
     use std::sync::Arc;
@@ -495,12 +500,73 @@ pub mod test_support {
             Err(WebhookRepositoryError::StorageUnavailable)
         }
 
+        async fn get_default_for_client(
+            &self,
+            _client_id: uuid::Uuid,
+        ) -> Result<Option<WebhookRow>, WebhookRepositoryError> {
+            Ok(None)
+        }
+
         async fn insert(&self, _row: &WebhookRow) -> Result<WebhookRow, WebhookRepositoryError> {
             Err(WebhookRepositoryError::StorageUnavailable)
         }
 
         async fn delete(&self, _id: uuid::Uuid) -> Result<(), WebhookRepositoryError> {
             Err(WebhookRepositoryError::StorageUnavailable)
+        }
+    }
+
+    #[derive(Clone)]
+    pub struct NullWebhookDeliveryStore;
+
+    #[async_trait]
+    impl WebhookDeliveryStore for NullWebhookDeliveryStore {
+        async fn get(
+            &self,
+            _delivery_id: uuid::Uuid,
+        ) -> Result<Option<WebhookDeliveryRow>, WebhookDeliveryRepositoryError> {
+            Err(WebhookDeliveryRepositoryError::StorageUnavailable)
+        }
+
+        async fn list_due(
+            &self,
+            _now: time::OffsetDateTime,
+            _limit: u32,
+        ) -> Result<Vec<WebhookDeliveryRow>, WebhookDeliveryRepositoryError> {
+            Err(WebhookDeliveryRepositoryError::StorageUnavailable)
+        }
+
+        async fn insert(
+            &self,
+            _row: &WebhookDeliveryRow,
+        ) -> Result<WebhookDeliveryRow, WebhookDeliveryRepositoryError> {
+            Err(WebhookDeliveryRepositoryError::StorageUnavailable)
+        }
+
+        async fn insert_tx(
+            &self,
+            _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+            _row: &WebhookDeliveryRow,
+        ) -> Result<WebhookDeliveryRow, WebhookDeliveryRepositoryError> {
+            Err(WebhookDeliveryRepositoryError::StorageUnavailable)
+        }
+
+        async fn update(
+            &self,
+            _row: &WebhookDeliveryRow,
+        ) -> Result<WebhookDeliveryRow, WebhookDeliveryRepositoryError> {
+            Err(WebhookDeliveryRepositoryError::StorageUnavailable)
+        }
+
+        async fn delete(
+            &self,
+            _delivery_id: uuid::Uuid,
+        ) -> Result<(), WebhookDeliveryRepositoryError> {
+            Err(WebhookDeliveryRepositoryError::StorageUnavailable)
+        }
+
+        async fn stats(&self) -> Result<WebhookDeliveryStats, WebhookDeliveryRepositoryError> {
+            Err(WebhookDeliveryRepositoryError::StorageUnavailable)
         }
     }
 
@@ -514,6 +580,7 @@ pub mod test_support {
             _job_id: JobId,
             _client_id: ClientId,
             _callback_url: Option<String>,
+            _callback_events: Option<Vec<String>>,
             _work_kind: Option<String>,
         ) -> Result<(Job, Event), JobLifecycleError> {
             Err(JobLifecycleError::Storage("unused".to_string()))
@@ -525,6 +592,7 @@ pub mod test_support {
             _client_id: ClientId,
             _execution_at: Timestamp,
             _callback_url: Option<String>,
+            _callback_events: Option<Vec<String>>,
             _work_kind: Option<String>,
         ) -> Result<(Job, Event), JobLifecycleError> {
             Err(JobLifecycleError::Storage("unused".to_string()))
@@ -562,6 +630,9 @@ pub mod test_support {
                 NullIdempotencyStore,
             ))),
             webhook: Arc::new(WebhookRepository::new(Arc::new(NullWebhookStore))),
+            webhook_delivery: Arc::new(WebhookDeliveryRepository::new(Arc::new(
+                NullWebhookDeliveryStore,
+            ))),
         };
         // Step 2: Build default settings for test scenarios.
         let settings = crate::config::Settings {
@@ -587,6 +658,14 @@ pub mod test_support {
                 max_batch: 100,
                 skew_seconds: 1,
                 tolerance_ms: 100,
+            },
+            webhook_delivery: crate::config::WebhookDelivery {
+                poll_interval_ms: 1000,
+                batch_size: 100,
+                request_timeout_ms: 2000,
+                max_attempts: 5,
+                backoff_initial_ms: 500,
+                backoff_max_ms: 30000,
             },
         };
 

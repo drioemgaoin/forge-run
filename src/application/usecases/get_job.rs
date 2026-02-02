@@ -173,6 +173,7 @@ mod tests {
             JobId::new(),
             ClientId::new(),
             None,
+            None,
             Some("SUCCESS_FAST".to_string()),
         )
         .unwrap();

@@ -26,6 +26,20 @@ impl WebhookRepository {
         }
     }
 
+    /// Fetch the default webhook for a client, if any.
+    pub async fn get_default_for_client(
+        &self,
+        client_id: uuid::Uuid,
+    ) -> Result<Option<WebhookRow>, WebhookRepositoryError> {
+        match self.store.get_default_for_client(client_id).await {
+            Ok(row) => Ok(row),
+            Err(WebhookRepositoryError::NotFound) => Err(WebhookRepositoryError::NotFound),
+            Err(WebhookRepositoryError::Conflict) => Err(WebhookRepositoryError::Conflict),
+            Err(WebhookRepositoryError::InvalidInput) => Err(WebhookRepositoryError::InvalidInput),
+            Err(_) => Err(WebhookRepositoryError::StorageUnavailable),
+        }
+    }
+
     /// Create a webhook and return what was actually stored in the database.
     pub async fn insert(&self, row: &WebhookRow) -> Result<WebhookRow, WebhookRepositoryError> {
         match self.store.insert(row).await {

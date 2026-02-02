@@ -36,6 +36,18 @@ impl EventName {
             EventName::JobSucceeded | EventName::JobFailed | EventName::JobCanceled
         )
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EventName::JobCreated => "job_created",
+            EventName::JobQueued => "job_queued",
+            EventName::JobAssigned => "job_assigned",
+            EventName::JobStarted => "job_started",
+            EventName::JobSucceeded => "job_succeeded",
+            EventName::JobFailed => "job_failed",
+            EventName::JobCanceled => "job_canceled",
+        }
+    }
 }
 
 impl Event {

@@ -5,6 +5,7 @@ pub mod idempotency_key;
 pub mod job;
 pub mod report;
 pub mod webhook;
+pub mod webhook_delivery;
 
 pub use api_key::ApiKeyRow;
 pub use client::ClientRow;
@@ -13,3 +14,4 @@ pub use idempotency_key::IdempotencyKeyRow;
 pub use job::JobRow;
 pub use report::ReportRow;
 pub use webhook::WebhookRow;
+pub use webhook_delivery::{WebhookDeliveryRow, WebhookDeliveryStats};

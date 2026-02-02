@@ -8,14 +8,16 @@ use crate::infrastructure::db::postgres::event_store_postgres::EventStorePostgre
 use crate::infrastructure::db::postgres::idempotency_key_store_postgres::IdempotencyKeyStorePostgres;
 use crate::infrastructure::db::postgres::job_store_postgres::JobStorePostgres;
 use crate::infrastructure::db::postgres::report_store_postgres::ReportStorePostgres;
+use crate::infrastructure::db::postgres::webhook_delivery_store_postgres::WebhookDeliveryStorePostgres;
+use crate::infrastructure::db::postgres::webhook_store_postgres::WebhookStorePostgres;
 use crate::infrastructure::db::repositories::api_key_repository::ApiKeyRepository;
 use crate::infrastructure::db::repositories::client_repository::ClientRepository;
 use crate::infrastructure::db::repositories::event_repository::EventRepository;
 use crate::infrastructure::db::repositories::idempotency_key_repository::IdempotencyKeyRepository;
 use crate::infrastructure::db::repositories::job_repository::JobRepository;
 use crate::infrastructure::db::repositories::report_repository::ReportRepository;
+use crate::infrastructure::db::repositories::webhook_delivery_repository::WebhookDeliveryRepository;
 use crate::infrastructure::db::repositories::webhook_repository::WebhookRepository;
-use crate::infrastructure::db::stores::webhook_store::DisabledWebhookStore;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -29,6 +31,7 @@ pub struct Repositories {
     pub api_key: Arc<ApiKeyRepository>,
     pub idempotency: Arc<IdempotencyKeyRepository>,
     pub webhook: Arc<WebhookRepository>,
+    pub webhook_delivery: Arc<WebhookDeliveryRepository>,
 }
 
 impl Repositories {
@@ -40,7 +43,8 @@ impl Repositories {
         let client_store = Arc::new(ClientStorePostgres::new(db.clone()));
         let api_key_store = Arc::new(ApiKeyStorePostgres::new(db.clone()));
         let id_store = Arc::new(IdempotencyKeyStorePostgres::new(db.clone()));
-        let webhook_store = Arc::new(DisabledWebhookStore);
+        let webhook_store = Arc::new(WebhookStorePostgres::new(db.clone()));
+        let webhook_delivery_store = Arc::new(WebhookDeliveryStorePostgres::new(db.clone()));
 
         Self {
             tx: Some(db.clone()),
@@ -51,6 +55,7 @@ impl Repositories {
             api_key: Arc::new(ApiKeyRepository::new(api_key_store)),
             idempotency: Arc::new(IdempotencyKeyRepository::new(id_store)),
             webhook: Arc::new(WebhookRepository::new(webhook_store)),
+            webhook_delivery: Arc::new(WebhookDeliveryRepository::new(webhook_delivery_store)),
         }
     }
 
