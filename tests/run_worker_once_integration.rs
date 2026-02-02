@@ -52,6 +52,14 @@ async fn given_queued_job_when_run_worker_once_should_finish_and_report() {
             backoff_initial_ms: 500,
             backoff_max_ms: 30000,
         },
+        observability: forge_run::config::Observability {
+            service_name: "forge-run".to_string(),
+            enable_tracing: false,
+            otlp_endpoint: "http://127.0.0.1:4317".to_string(),
+            enable_metrics: false,
+
+            log_file_path: None,
+        },
     };
     let ctx = AppContext::new(repos.clone(), Arc::new(lifecycle), settings.clone());
 
@@ -128,6 +136,13 @@ async fn given_retryable_job_when_run_worker_once_should_requeue_with_backoff() 
             max_attempts: 5,
             backoff_initial_ms: 500,
             backoff_max_ms: 30000,
+        },
+        observability: forge_run::config::Observability {
+            service_name: "forge-run".to_string(),
+            enable_tracing: false,
+            otlp_endpoint: "http://127.0.0.1:4317".to_string(),
+            enable_metrics: false,
+            log_file_path: None,
         },
     };
     let ctx = AppContext::new(repos.clone(), Arc::new(lifecycle), settings.clone());

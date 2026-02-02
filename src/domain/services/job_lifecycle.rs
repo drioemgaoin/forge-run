@@ -8,6 +8,7 @@ use crate::infrastructure::db::database::DatabaseError;
 use crate::infrastructure::db::dto::WebhookDeliveryRow;
 use crate::infrastructure::db::repositories::Repositories;
 use async_trait::async_trait;
+use tracing::info;
 
 /// Domain-level job lifecycle contract.
 ///
@@ -343,7 +344,13 @@ impl JobLifecycleService for JobLifecycle {
             .await
             .map_err(|e| JobLifecycleError::Storage(e.to_string()))?;
 
-        // Step 6: Return the created event.
+        // Step 6: Emit a transition log and return the created event.
+        info!(
+            job_id = %job.id.0,
+            event = %event.event_name.as_str(),
+            state = %job.state.as_str(),
+            "job_transitioned"
+        );
         Ok(event)
     }
 

@@ -50,6 +50,14 @@ fn base_settings(db_url: String) -> Settings {
             backoff_initial_ms: 500,
             backoff_max_ms: 30000,
         },
+        observability: forge_run::config::Observability {
+            service_name: "forge-run".to_string(),
+            enable_tracing: false,
+            otlp_endpoint: "http://127.0.0.1:4317".to_string(),
+            enable_metrics: false,
+
+            log_file_path: None,
+        },
     }
 }
 

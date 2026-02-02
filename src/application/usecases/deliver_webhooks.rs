@@ -5,7 +5,9 @@ use crate::domain::entities::event::Event;
 use crate::domain::value_objects::ids::EventId;
 use crate::domain::value_objects::timestamps::Timestamp;
 use crate::infrastructure::db::dto::WebhookDeliveryRow;
+use metrics::{counter, histogram};
 use serde::Serialize;
+use tracing::{info, instrument};
 
 /// Delivers queued webhook callbacks and updates delivery status.
 pub struct DeliverWebhooksUseCase;
@@ -35,6 +37,7 @@ struct WebhookPayload {
 
 impl DeliverWebhooksUseCase {
     /// Deliver due webhook callbacks once and return processing stats.
+    #[instrument(skip(ctx))]
     pub async fn run_once(
         ctx: &AppContext,
         now: Timestamp,
@@ -75,7 +78,16 @@ impl DeliverWebhooksUseCase {
             }
         }
 
-        // Step 4: Return summary stats for observability.
+        // Step 4: Emit metrics and return summary stats.
+        counter!("webhook_deliveries_processed").increment(total as u64);
+        counter!("webhook_deliveries_delivered").increment(delivered as u64);
+        counter!("webhook_deliveries_failed").increment(failed as u64);
+        info!(
+            processed = total,
+            delivered, failed, "webhook_delivery_batch"
+        );
+
+        // Step 5: Return summary stats for observability.
         Ok(DeliverWebhooksResult {
             processed: total,
             delivered,
@@ -84,6 +96,7 @@ impl DeliverWebhooksUseCase {
     }
 
     /// Run the webhook delivery loop continuously at a fixed interval.
+    #[instrument(skip(ctx, shutdown))]
     pub async fn run_loop(
         ctx: &AppContext,
         poll_interval: time::Duration,
@@ -141,6 +154,7 @@ impl DeliverWebhooksUseCase {
 
         // Step 2: Send the webhook request.
         let payload = Self::build_payload(&event);
+        let started = std::time::Instant::now();
         let response = client
             .post(&delivery.target_url)
             .json(&payload)
@@ -150,6 +164,8 @@ impl DeliverWebhooksUseCase {
         // Step 3: Update delivery status based on the HTTP response.
         match response {
             Ok(resp) if resp.status().is_success() => {
+                histogram!("webhook_delivery_latency_ms", "result" => "success")
+                    .record(started.elapsed().as_millis() as f64);
                 Self::mark_delivered(delivery, now, resp.status().as_u16() as i32);
                 ctx.repos
                     .webhook_delivery
@@ -159,6 +175,8 @@ impl DeliverWebhooksUseCase {
                 Ok(DeliveryStatus::Delivered)
             }
             Ok(resp) => {
+                histogram!("webhook_delivery_latency_ms", "result" => "http_error")
+                    .record(started.elapsed().as_millis() as f64);
                 let status = resp.status().as_u16() as i32;
                 let status =
                     Self::mark_retry(delivery, now, Some(status), "http_error".to_string(), ctx);
@@ -170,6 +188,8 @@ impl DeliverWebhooksUseCase {
                 Ok(status)
             }
             Err(err) => {
+                histogram!("webhook_delivery_latency_ms", "result" => "transport_error")
+                    .record(started.elapsed().as_millis() as f64);
                 let status = Self::mark_retry(delivery, now, None, err.to_string(), ctx);
                 ctx.repos
                     .webhook_delivery
